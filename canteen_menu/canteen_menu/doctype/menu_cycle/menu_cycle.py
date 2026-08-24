@@ -12,11 +12,13 @@ class MenuCycle(Document):
 		self.validate_dates()
 		self.validate_cycle_length()
 		self.validate_items_present()
+		# Fills in UOM, which the rate comparisons below key on - must run first.
+		self.fill_item_details()
 		self.validate_day_numbers()
 		self.validate_unique_rows()
 		self.validate_no_overlapping_cycle()
 		self.validate_consistent_rates()
-		self.fill_item_details()
+		self.validate_price_list_not_shared()
 
 	def on_update(self):
 		self.sync_menu_rates()
@@ -108,6 +110,71 @@ class MenuCycle(Document):
 					)
 				)
 			rates[key] = flt(row.rate)
+
+	def validate_price_list_not_shared(self):
+		"""Two canteens pricing the same item differently need separate price lists.
+
+		Item Price is keyed by price list, not by counter, so if two canteens
+		sell through one price list the second cycle saved would silently
+		overwrite the first one's rates. Caught here rather than discovered at
+		the till.
+		"""
+		if not (self.is_active and self.pos_profile and self.from_date and self.to_date):
+			return
+
+		price_list = frappe.db.get_value("POS Profile", self.pos_profile, "selling_price_list")
+		if not price_list:
+			return
+
+		my_rates = {
+			(row.item_code, row.uom or ""): flt(row.rate)
+			for row in self.items
+			if row.item_code and flt(row.rate)
+		}
+		if not my_rates:
+			return
+
+		others = frappe.get_all(
+			"Menu Cycle",
+			filters={
+				"name": ["!=", self.name or "new"],
+				"is_active": 1,
+				# "!=" also drops rows with no POS Profile, which cannot reach a till anyway.
+				# (A "not in" list containing NULL matches nothing in SQL.)
+				"pos_profile": ["!=", self.pos_profile],
+				"from_date": ["<=", self.to_date],
+				"to_date": [">=", self.from_date],
+			},
+			fields=["name", "cycle_name", "pos_profile"],
+		)
+
+		for other in others:
+			if frappe.db.get_value("POS Profile", other.pos_profile, "selling_price_list") != price_list:
+				continue
+
+			for row in frappe.get_all(
+				"Menu Cycle Item",
+				filters={"parenttype": "Menu Cycle", "parent": other.name},
+				fields=["item_code", "uom", "rate"],
+			):
+				key = (row.item_code, row.uom or "")
+				if not (flt(row.rate) and key in my_rates and flt(row.rate) != my_rates[key]):
+					continue
+
+				frappe.throw(
+					_("{0} is priced {1} here but {2} in {3}. Both {4} and {5} sell through "
+					  "price list {6}, so one rate would overwrite the other. Give {4} its own "
+					  "Price List on its POS Profile.").format(
+						row.item_code,
+						my_rates[key],
+						flt(row.rate),
+						frappe.utils.get_link_to_form("Menu Cycle", other.name, other.cycle_name),
+						self.pos_profile,
+						other.pos_profile,
+						price_list,
+					),
+					title=_("Canteens share a price list"),
+				)
 
 	def fill_item_details(self):
 		for row in self.items:

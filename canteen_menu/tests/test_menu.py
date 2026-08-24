@@ -18,10 +18,23 @@ def get_test_branch() -> str:
 	return frappe.get_doc({"doctype": "Branch", "branch": frappe.generate_hash(length=10)}).insert().name
 
 
-def clear_live_cycles(pos_profile: str) -> None:
-	"""Park any real cycle for this canteen; the caller's rollback puts it back."""
-	for name in frappe.get_all("Menu Cycle", filters={"pos_profile": pos_profile, "is_active": 1}, pluck="name"):
-		frappe.db.set_value("Menu Cycle", name, "is_active", 0, update_modified=False)
+def make_price_list() -> str:
+	return frappe.get_doc({
+		"doctype": "Price List",
+		"price_list_name": frappe.generate_hash(length=10),
+		"selling": 1,
+		"enabled": 1,
+		"currency": frappe.db.get_value("Price List", {"selling": 1}, "currency") or "INR",
+	}).insert().name
+
+
+def make_pos_profile(base: str, price_list: str) -> str:
+	"""A counter of its own, cloned from a working profile so POS queries hold up."""
+	profile = frappe.copy_doc(frappe.get_doc("POS Profile", base))
+	profile.name = frappe.generate_hash(length=10)
+	profile.selling_price_list = price_list
+	profile.applicable_for_users = []  # a second default for the same user is rejected
+	return profile.insert().name
 
 
 def make_cycle(pos_profile, rows, rotation="Daily", length=7, start=None, active=1, rate=0):
@@ -80,23 +93,30 @@ class TestDayNumber(BaseTestCase):
 		self.assertEqual(get_day_number(self.cycle("Daily"), "2026-07-30"), 1)
 
 
-class TestMenuResolution(BaseTestCase):
+class CanteenTestCase(BaseTestCase):
+	"""Every test gets a canteen of its own - its own POS Profile on its own
+	price list - so real menus on a working site can never interfere.
+	"""
+
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.pos_profile = (frappe.get_all("POS Profile", limit=1, pluck="name") or [None])[0]
+		cls.base_profile = (frappe.get_all("POS Profile", limit=1, pluck="name") or [None])[0]
 		cls.items = frappe.get_all(
 			"Item", filters={"disabled": 0, "is_sales_item": 1, "has_variants": 0}, limit=3, pluck="name"
 		)
 
 	def setUp(self):
-		if not self.pos_profile or len(self.items) < 3:
+		if not self.base_profile or len(self.items) < 3:
 			self.skipTest("needs a POS Profile and at least 3 sellable items")
-		clear_live_cycles(self.pos_profile)
+		self.price_list = make_price_list()
+		self.pos_profile = make_pos_profile(self.base_profile, self.price_list)
 
 	def tearDown(self):
 		frappe.db.rollback()
 
+
+class TestMenuResolution(CanteenTestCase):
 	def test_only_todays_items_are_on_the_menu(self):
 		make_cycle(self.pos_profile, [(1, self.items[0]), (2, self.items[1])])
 		self.assertEqual(get_menu_item_codes(self.pos_profile), [self.items[0]])
@@ -146,24 +166,7 @@ class TestMenuResolution(BaseTestCase):
 			make_cycle(self.pos_profile, [(1, self.items[1])])
 
 
-class TestPOSIntegration(BaseTestCase):
-	@classmethod
-	def setUpClass(cls):
-		super().setUpClass()
-		cls.pos_profile = (frappe.get_all("POS Profile", limit=1, pluck="name") or [None])[0]
-		cls.items = frappe.get_all(
-			"Item", filters={"disabled": 0, "is_sales_item": 1, "has_variants": 0}, limit=3, pluck="name"
-		)
-
-	def setUp(self):
-		if not self.pos_profile or len(self.items) < 3:
-			self.skipTest("needs a POS Profile and at least 3 sellable items")
-		self.price_list = frappe.db.get_value("POS Profile", self.pos_profile, "selling_price_list")
-		clear_live_cycles(self.pos_profile)
-
-	def tearDown(self):
-		frappe.db.rollback()
-
+class TestPOSIntegration(CanteenTestCase):
 	def get_items(self, search_term=""):
 		result = pos.get_items(
 			start=0,
@@ -204,27 +207,8 @@ class TestPOSIntegration(BaseTestCase):
 			self.assertIn(key, item)
 
 
-class TestMenuPricing(BaseTestCase):
+class TestMenuPricing(CanteenTestCase):
 	"""The menu drives the price: rates land on the canteen's selling price list."""
-
-	@classmethod
-	def setUpClass(cls):
-		super().setUpClass()
-		cls.pos_profile = (frappe.get_all("POS Profile", limit=1, pluck="name") or [None])[0]
-		cls.items = frappe.get_all(
-			"Item", filters={"disabled": 0, "is_sales_item": 1, "has_variants": 0}, limit=3, pluck="name"
-		)
-
-	def setUp(self):
-		if not self.pos_profile or len(self.items) < 3:
-			self.skipTest("needs a POS Profile and at least 3 sellable items")
-		self.price_list = frappe.db.get_value("POS Profile", self.pos_profile, "selling_price_list")
-		if not self.price_list:
-			self.skipTest("POS Profile has no selling price list")
-		clear_live_cycles(self.pos_profile)
-
-	def tearDown(self):
-		frappe.db.rollback()
 
 	def get_price(self, item_code):
 		return frappe.db.get_value(
@@ -276,3 +260,33 @@ class TestMenuPricing(BaseTestCase):
 					],
 				}
 			).insert()
+
+	def test_canteens_sharing_a_price_list_cannot_disagree_on_a_rate(self):
+		"""Item Price is keyed by price list, so the second save would overwrite the first."""
+		other = make_pos_profile(self.base_profile, self.price_list)
+		make_cycle(self.pos_profile, [(1, self.items[0])], rate=40)
+
+		with self.assertRaises(frappe.ValidationError):
+			make_cycle(other, [(1, self.items[0])], rate=25)
+
+	def test_canteens_sharing_a_price_list_may_agree_on_a_rate(self):
+		other = make_pos_profile(self.base_profile, self.price_list)
+		make_cycle(self.pos_profile, [(1, self.items[0])], rate=40)
+
+		make_cycle(other, [(1, self.items[0])], rate=40)  # identical - nothing to overwrite
+		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 40)
+
+	def test_separate_price_lists_keep_canteens_independent(self):
+		other_list = make_price_list()
+		other = make_pos_profile(self.base_profile, other_list)
+
+		make_cycle(self.pos_profile, [(1, self.items[0])], rate=40)
+		make_cycle(other, [(1, self.items[0])], rate=25)
+
+		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 40)
+		self.assertEqual(
+			flt(frappe.db.get_value(
+				"Item Price", {"item_code": self.items[0], "price_list": other_list}, "price_list_rate"
+			)),
+			25,
+		)
