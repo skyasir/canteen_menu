@@ -10,6 +10,16 @@ app_license = "mit"
 
 required_apps = ["frappe/erpnext"]
 
+add_to_apps_screen = [
+	{
+		"name": app_name,
+		"logo": "/assets/canteen_menu/images/canteen-menu-logo.svg",
+		"title": app_title,
+		"route": "/app/canteen-menu",
+		"has_permission": "canteen_menu.permissions.check_app_permission",
+	}
+]
+
 # Point of Sale shows only the items on today's menu for the canteen behind
 # the POS Profile. Falls back to stock behaviour when no Menu Cycle is active.
 override_whitelisted_methods = {
