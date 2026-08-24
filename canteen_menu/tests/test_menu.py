@@ -100,6 +100,11 @@ class CanteenTestCase(BaseTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
+	def messages(self) -> str:
+		return " ".join(
+			f"{m.get('title', '')} {m.get('message', '')}" for m in (frappe.message_log or [])
+		)
+
 
 class TestMenuResolution(CanteenTestCase):
 	def test_only_todays_weekday_is_on_the_menu(self):
@@ -152,27 +157,43 @@ class TestMenuResolution(CanteenTestCase):
 		self.assertIn(self.items[0], codes)
 		self.assertNotIn(self.items[2], codes)
 
-	def test_overlapping_active_menus_are_rejected(self):
+	def test_overlapping_active_menus_are_warned_not_blocked(self):
 		make_cycle(self.pos_profile, [(self.today, self.items[0])])
-		with self.assertRaises(frappe.ValidationError):
-			make_cycle(self.pos_profile, [(self.today, self.items[1])])
 
-	def test_an_open_ended_menu_blocks_a_later_one(self):
+		frappe.local.message_log = []
+		second = make_cycle(self.pos_profile, [(self.today, self.items[1])])
+
+		self.assertTrue(frappe.db.exists("Menu Cycle", second.name), "the save must go through")
+		self.assertIn("Another menu overlaps", self.messages())
+
+	def test_an_open_ended_menu_is_reported_against_a_later_one(self):
 		make_cycle(self.pos_profile, [(self.today, self.items[0])], until="")
-		with self.assertRaises(frappe.ValidationError):
-			make_cycle(self.pos_profile, [(self.today, self.items[1])], start=add_days(today(), 90))
 
-	def test_duplicate_rows_are_rejected(self):
-		with self.assertRaises(frappe.ValidationError):
-			make_cycle(self.pos_profile, [(self.today, self.items[0]), (self.today, self.items[0])])
+		frappe.local.message_log = []
+		make_cycle(self.pos_profile, [(self.today, self.items[1])], start=add_days(today(), 90))
 
-	def test_a_menu_needs_items(self):
-		with self.assertRaises(frappe.ValidationError):
-			make_cycle(self.pos_profile, [])
+		self.assertIn("Another menu overlaps", self.messages())
 
-	def test_end_date_cannot_precede_start(self):
-		with self.assertRaises(frappe.ValidationError):
-			make_cycle(self.pos_profile, [(self.today, self.items[0])], until=add_days(today(), -5))
+	def test_duplicate_rows_are_warned_not_blocked(self):
+		frappe.local.message_log = []
+		cycle = make_cycle(self.pos_profile, [(self.today, self.items[0]), (self.today, self.items[0])])
+
+		self.assertTrue(frappe.db.exists("Menu Cycle", cycle.name), "the save must go through")
+		self.assertIn("Repeated rows", self.messages())
+
+	def test_an_empty_active_menu_is_warned_not_blocked(self):
+		frappe.local.message_log = []
+		cycle = make_cycle(self.pos_profile, [])
+
+		self.assertTrue(frappe.db.exists("Menu Cycle", cycle.name), "the save must go through")
+		self.assertIn("Active menu with no items", self.messages())
+
+	def test_a_backwards_date_range_is_warned_not_blocked(self):
+		frappe.local.message_log = []
+		cycle = make_cycle(self.pos_profile, [(self.today, self.items[0])], until=add_days(today(), -5))
+
+		self.assertTrue(frappe.db.exists("Menu Cycle", cycle.name), "the save must go through")
+		self.assertIn("never runs", self.messages())
 
 
 class TestPOSIntegration(CanteenTestCase):
@@ -219,11 +240,6 @@ class TestPOSIntegration(CanteenTestCase):
 class TestMenuPricing(CanteenTestCase):
 	"""The menu drives the price: rates land on the canteen's selling price list."""
 
-	def messages(self) -> str:
-		return " ".join(
-			f"{m.get('title', '')} {m.get('message', '')}" for m in (frappe.message_log or [])
-		)
-
 	def get_price(self, item_code, price_list=None):
 		return frappe.db.get_value(
 			"Item Price",
@@ -257,21 +273,26 @@ class TestMenuPricing(CanteenTestCase):
 		make_cycle(self.pos_profile, [(self.today, self.items[1])], rate=99, active=0)
 		self.assertEqual(before, self.get_price(self.items[1]))
 
-	def test_conflicting_rates_across_days_are_rejected(self):
-		with self.assertRaises(frappe.ValidationError):
-			frappe.get_doc({
-				"doctype": "Menu Cycle",
-				"cycle_name": frappe.generate_hash(length=10),
-				"branch": make_branch(),
-				"pos_profile": self.pos_profile,
-				"company": frappe.db.get_value("POS Profile", self.pos_profile, "company"),
-				"is_active": 1,
-				"from_date": today(),
-				"items": [
-					{"weekday": self.today, "meal_type": "Lunch", "item_code": self.items[0], "rate": 10},
-					{"weekday": self.tomorrow, "meal_type": "Lunch", "item_code": self.items[0], "rate": 20},
-				],
-			}).insert()
+	def test_conflicting_rates_across_days_are_warned_not_blocked(self):
+		frappe.local.message_log = []
+		cycle = frappe.get_doc({
+			"doctype": "Menu Cycle",
+			"cycle_name": frappe.generate_hash(length=10),
+			"branch": make_branch(),
+			"pos_profile": self.pos_profile,
+			"company": frappe.db.get_value("POS Profile", self.pos_profile, "company"),
+			"is_active": 1,
+			"from_date": today(),
+			"items": [
+				{"weekday": self.today, "meal_type": "Lunch", "item_code": self.items[0], "rate": 10},
+				{"weekday": self.tomorrow, "meal_type": "Lunch", "item_code": self.items[0], "rate": 20},
+			],
+		}).insert()
+
+		self.assertTrue(frappe.db.exists("Menu Cycle", cycle.name), "the save must go through")
+		self.assertIn("One item, two prices", self.messages())
+		# the last row is what reaches the price list
+		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 20)
 
 	def test_canteens_sharing_a_price_list_are_warned_not_blocked(self):
 		other = make_pos_profile(self.base_profile, self.price_list)

@@ -14,38 +14,59 @@ def same_date(a, b) -> bool:
 
 class MenuCycle(Document):
 	def validate(self):
-		self.validate_dates()
-		self.validate_items_present()
+		self.warn_if_dates_are_backwards()
+		self.warn_if_no_items()
 		# Fills in UOM, which the rate comparisons below key on - must run first.
 		self.fill_item_details()
-		self.validate_unique_rows()
-		self.validate_no_overlapping_cycle()
-		self.validate_consistent_rates()
+		self.warn_if_rows_repeat()
+		self.warn_if_another_menu_overlaps()
+		self.warn_if_rates_disagree()
 		self.warn_if_price_list_is_the_site_default()
 		self.warn_if_price_list_shared()
 
 	def on_update(self):
 		self.sync_menu_rates()
 
-	def validate_dates(self):
+	def warn_if_dates_are_backwards(self):
 		if self.to_date and getdate(self.to_date) < getdate(self.from_date):
-			frappe.throw(_("Until cannot be before Starts On"))
+			frappe.msgprint(
+				_("Until ({0}) is before Starts On ({1}), so this menu never runs and POS "
+				  "will ignore it.").format(self.to_date, self.from_date),
+				title=_("This menu never runs"),
+				indicator="orange",
+			)
 
-	def validate_items_present(self):
-		if not self.items:
-			frappe.throw(_("Add at least one menu item"))
+	def warn_if_no_items(self):
+		if not self.items and self.is_active:
+			frappe.msgprint(
+				_("This menu is active but has no items, so POS will show nothing at {0} "
+				  "while it runs.").format(self.pos_profile or _("this canteen")),
+				title=_("Active menu with no items"),
+				indicator="orange",
+			)
 
-	def validate_unique_rows(self):
+	def warn_if_rows_repeat(self):
 		seen: dict[tuple, int] = {}
+		repeats = []
 		for row in self.items:
 			key = (row.weekday, row.meal_type, row.item_code)
 			if key in seen:
-				frappe.throw(
-					_("Row #{0}: {1} is already listed for {2} {3} (row {4})").format(
+				repeats.append(
+					_("Row {0}: {1} is already listed for {2} {3} in row {4}").format(
 						row.idx, row.item_code, row.weekday, row.meal_type, seen[key]
 					)
 				)
-			seen[key] = row.idx
+			else:
+				seen[key] = row.idx
+
+		if repeats:
+			frappe.msgprint(
+				"<ul><li>" + "</li><li>".join(repeats) + "</li></ul>"
+				+ _("Duplicate rows do not break anything - the item simply appears once on the "
+				    "POS screen - but they will double any planned quantity you report on."),
+				title=_("Repeated rows"),
+				indicator="orange",
+			)
 
 	def overlapping_active_cycles(self, *conditions) -> list[frappe._dict]:
 		"""Other active cycles whose run overlaps this one's.
@@ -73,12 +94,12 @@ class MenuCycle(Document):
 
 		return query.run(as_dict=True)
 
-	def validate_no_overlapping_cycle(self):
-		"""Two active cycles covering the same day would make the menu ambiguous.
+	def warn_if_another_menu_overlaps(self):
+		"""Say which menu POS will actually serve when two of them overlap.
 
-		Checked on the POS Profile, because that is what the POS override
-		resolves the menu by, and on the Branch, because that is the canteen
-		a human thinks in.
+		Resolution is deterministic - `get_active_cycle` takes the latest
+		Starts On, then the most recently saved - so an overlap is worth
+		reporting, not refusing.
 		"""
 		if not (self.is_active and self.from_date):
 			return
@@ -90,32 +111,64 @@ class MenuCycle(Document):
 			if not value:
 				continue
 
-			clash = self.overlapping_active_cycles(cycle[fieldname] == value)
-			if clash:
-				frappe.throw(
-					_("{0} is already active for {1} over these dates. "
-					  "Deactivate it or change the dates.").format(
-						frappe.utils.get_link_to_form("Menu Cycle", clash[0].name, clash[0].cycle_name),
-						value,
-					)
-				)
+			clashes = self.overlapping_active_cycles(cycle[fieldname] == value)
+			if not clashes:
+				continue
 
-	def validate_consistent_rates(self):
-		"""One item can only carry one selling price, so the cycle must agree with itself."""
-		rates: dict[tuple[str, str], float] = {}
+			listed = ", ".join(
+				frappe.utils.get_link_to_form("Menu Cycle", c.name, c.cycle_name) for c in clashes
+			)
+			frappe.msgprint(
+				_("{0} also runs at {1} over these dates ({2}).").format(listed, value, fieldname.replace("_", " "))
+				+ " "
+				+ _("POS serves whichever menu has the later Starts On; if they start on the same "
+				    "day, the one saved most recently wins. Deactivate the other menu if you want "
+				    "this one to be certain."),
+				title=_("Another menu overlaps this one"),
+				indicator="orange",
+			)
+			return
+
+	def warn_if_rates_disagree(self):
+		"""Flag - but do not block - one item carrying two prices in this menu.
+
+		A price list holds one rate per item and UOM, so a breakfast chapati at
+		12 and a dinner chapati at 40 cannot both reach the counter. Whichever
+		row is last is what gets charged. Worth saying out loud; not worth
+		refusing the save over.
+		"""
+		rows_by_item: dict[tuple[str, str], list[tuple[int, float]]] = {}
 		for row in self.items:
 			if not row.item_code or not flt(row.rate):
 				continue
+			rows_by_item.setdefault((row.item_code, row.uom or ""), []).append((row.idx, flt(row.rate)))
 
-			key = (row.item_code, row.uom or "")
-			if key in rates and flt(rates[key]) != flt(row.rate):
-				frappe.throw(
-					_("Row #{0}: {1} is priced {2} here but {3} elsewhere in this menu. "
-					  "One item can carry only one price per UOM.").format(
-						row.idx, row.item_code, flt(row.rate), flt(rates[key])
-					)
+		clashes = []
+		for (item_code, _uom), entries in rows_by_item.items():
+			if len({rate for _idx, rate in entries}) < 2:
+				continue
+
+			listed = ", ".join(_("{0} (row {1})").format(rate, idx) for idx, rate in entries)
+			clashes.append(
+				_("{0} - {1}. The counter will charge {2}.").format(
+					item_code, listed, entries[-1][1]
 				)
-			rates[key] = flt(row.rate)
+			)
+
+		if not clashes:
+			return
+
+		frappe.msgprint(
+			_("These items are listed at more than one price in this menu:")
+			+ "<ul><li>"
+			+ "</li><li>".join(clashes)
+			+ "</li></ul>"
+			+ _("A price list holds one rate per item and UOM, so the last row wins. "
+			    "To charge different prices for the same dish, sell it as separate items "
+			    "(for example a breakfast and a dinner portion)."),
+			title=_("One item, two prices"),
+			indicator="orange",
+		)
 
 	def warn_if_price_list_is_the_site_default(self):
 		"""A canteen on the default price list rewrites everyone's selling prices.

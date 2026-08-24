@@ -114,11 +114,11 @@
    "options": "Menu Item Template"
   },
   {
+   "description": "An active menu with no items means POS shows nothing at that canteen",
    "fieldname": "items",
    "fieldtype": "Table",
    "label": "Items",
-   "options": "Menu Cycle Item",
-   "reqd": 1
+   "options": "Menu Cycle Item"
   },
   {
    "fieldname": "sec_meta",
@@ -133,7 +133,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-25 02:33:26.971763",
+ "modified": "2026-08-25 02:55:04.552863",
  "modified_by": "Administrator",
  "module": "Canteen Menu",
  "name": "Menu Cycle",
