@@ -21,7 +21,7 @@ class MenuCycle(Document):
 		self.validate_unique_rows()
 		self.validate_no_overlapping_cycle()
 		self.validate_consistent_rates()
-		self.validate_price_list_not_shared()
+		self.warn_if_price_list_shared()
 
 	def on_update(self):
 		self.sync_menu_rates()
@@ -116,13 +116,13 @@ class MenuCycle(Document):
 				)
 			rates[key] = flt(row.rate)
 
-	def validate_price_list_not_shared(self):
-		"""Two canteens pricing the same item differently need separate price lists.
+	def warn_if_price_list_shared(self):
+		"""Flag - but do not block - two canteens pricing one item differently.
 
-		Item Price is keyed by price list, not by counter, so if two canteens
-		sell through one price list the second cycle saved would silently
-		overwrite the first one's rates. Caught here rather than discovered at
-		the till.
+		Item Price is keyed by price list, not by counter, so when two canteens
+		sell through one price list only the rate saved last survives and both
+		counters charge it. That is a decision for whoever is planning the menu,
+		not something to refuse, so this warns and gets out of the way.
 		"""
 		if not (self.is_active and self.pos_profile and self.from_date):
 			return
@@ -143,6 +143,9 @@ class MenuCycle(Document):
 		# "!=" also drops rows with no POS Profile, which cannot reach a till anyway.
 		others = self.overlapping_active_cycles(cycle.pos_profile != self.pos_profile)
 
+		# Keyed by item, since the other menu may serve it on several weekdays
+		# and we only want to say it once.
+		clashes: dict[tuple[str, str], str] = {}
 		for other in others:
 			if frappe.db.get_value("POS Profile", other.pos_profile, "selling_price_list") != price_list:
 				continue
@@ -156,20 +159,32 @@ class MenuCycle(Document):
 				if not (flt(row.rate) and key in my_rates and flt(row.rate) != my_rates[key]):
 					continue
 
-				frappe.throw(
-					_("{0} is priced {1} here but {2} in {3}. Both {4} and {5} sell through "
-					  "price list {6}, so one rate would overwrite the other. Give {4} its own "
-					  "Price List on its POS Profile.").format(
+				clashes[key] = (
+					_("{0} - {1} here, {2} at {3} ({4})").format(
 						row.item_code,
-						my_rates[key],
+						flt(my_rates[key]),
 						flt(row.rate),
-						frappe.utils.get_link_to_form("Menu Cycle", other.name, other.cycle_name),
-						self.pos_profile,
 						other.pos_profile,
-						price_list,
-					),
-					title=_("Canteens share a price list"),
+						frappe.utils.get_link_to_form("Menu Cycle", other.name, other.cycle_name),
+					)
 				)
+
+		if not clashes:
+			return
+
+		frappe.msgprint(
+			_("{0} shares price list {1} with another canteen, and these rates disagree:").format(
+				self.pos_profile, price_list
+			)
+			+ "<ul><li>"
+			+ "</li><li>".join(clashes.values())
+			+ "</li></ul>"
+			+ _("Saving anyway is fine - but {0} keeps whichever rate was saved last, so both "
+			    "counters will charge it. To price independently, give {1} its own Price List "
+			    "on its POS Profile.").format(price_list, self.pos_profile),
+			title=_("Canteens share a price list"),
+			indicator="orange",
+		)
 
 	def fill_item_details(self):
 		for row in self.items:

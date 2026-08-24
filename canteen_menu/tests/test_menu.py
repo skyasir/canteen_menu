@@ -219,6 +219,11 @@ class TestPOSIntegration(CanteenTestCase):
 class TestMenuPricing(CanteenTestCase):
 	"""The menu drives the price: rates land on the canteen's selling price list."""
 
+	def messages(self) -> str:
+		return " ".join(
+			f"{m.get('title', '')} {m.get('message', '')}" for m in (frappe.message_log or [])
+		)
+
 	def get_price(self, item_code, price_list=None):
 		return frappe.db.get_value(
 			"Item Price",
@@ -268,18 +273,34 @@ class TestMenuPricing(CanteenTestCase):
 				],
 			}).insert()
 
-	def test_canteens_sharing_a_price_list_cannot_disagree_on_a_rate(self):
+	def test_canteens_sharing_a_price_list_are_warned_not_blocked(self):
 		other = make_pos_profile(self.base_profile, self.price_list)
 		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
 
-		with self.assertRaises(frappe.ValidationError):
-			make_cycle(other, [(self.today, self.items[0])], rate=25)
+		frappe.local.message_log = []
+		cycle = make_cycle(other, [(self.today, self.items[0])], rate=25)
 
-	def test_canteens_sharing_a_price_list_may_agree_on_a_rate(self):
+		self.assertTrue(frappe.db.exists("Menu Cycle", cycle.name), "the save must go through")
+		warnings = self.messages()
+		self.assertIn("share a price list", warnings)
+		self.assertIn(self.items[0], warnings)
+		self.assertIn(self.price_list, warnings)
+
+	def test_on_a_shared_price_list_the_last_save_wins(self):
+		other = make_pos_profile(self.base_profile, self.price_list)
+		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
+		make_cycle(other, [(self.today, self.items[0])], rate=25)
+
+		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 25)
+
+	def test_no_warning_when_canteens_agree_on_the_rate(self):
 		other = make_pos_profile(self.base_profile, self.price_list)
 		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
 
+		frappe.local.message_log = []
 		make_cycle(other, [(self.today, self.items[0])], rate=40)  # identical - nothing to overwrite
+
+		self.assertNotIn("share a price list", self.messages())
 		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 40)
 
 	def test_separate_price_lists_keep_canteens_independent(self):

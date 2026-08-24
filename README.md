@@ -8,7 +8,7 @@ Menu planning for canteens running on ERPNext Point of Sale.
 
 ### Pricing per canteen
 
-Item Price is keyed by price list, so **each canteen needs its own Price List** on its POS Profile. Two canteens sharing one price list would overwrite each other's rates; Menu Cycle refuses to save when that would happen and names the price list to split.
+Item Price is keyed by price list, so **each canteen wanting its own rates needs its own Price List** on its POS Profile. Two canteens sharing one price list keep only the rate saved last, and both counters charge it. Menu Cycle warns when it spots that - naming the items, the rates and the other canteen - but still saves; whether the canteens should share a price is a menu-planning decision, not something to refuse.
 
 ### Fallbacks
 
