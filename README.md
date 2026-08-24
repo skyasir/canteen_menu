@@ -10,6 +10,8 @@ Menu planning for canteens running on ERPNext Point of Sale.
 
 Item Price is keyed by price list, so **each canteen wanting its own rates needs its own Price List** on its POS Profile. Two canteens sharing one price list keep only the rate saved last, and both counters charge it. Menu Cycle warns when it spots that - naming the items, the rates and the other canteen - but still saves; whether the canteens should share a price is a menu-planning decision, not something to refuse.
 
+Point a canteen at a price list nothing else uses. A POS Profile sitting on the site's **default** selling price list is warned about, because menu rates are written to that list and would reprice items on quotations, sales orders and invoices too.
+
 ### Fallbacks
 
 If no active Menu Cycle covers today for a POS Profile, `get_items` delegates to the stock ERPNext implementation and POS behaves exactly as before. Only canteens with a menu are restricted.

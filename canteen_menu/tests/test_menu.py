@@ -312,3 +312,21 @@ class TestMenuPricing(CanteenTestCase):
 
 		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 40)
 		self.assertEqual(flt(self.get_price(self.items[0], other_list).price_list_rate), 25)
+
+	def test_a_menu_on_the_site_default_price_list_is_warned(self):
+		default = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+		if not default:
+			self.skipTest("site has no default selling price list")
+
+		on_default = make_pos_profile(self.base_profile, default)
+
+		frappe.local.message_log = []
+		make_cycle(on_default, [(self.today, self.items[0])], rate=40)
+
+		self.assertIn("default selling price list", self.messages())
+
+	def test_a_menu_on_its_own_price_list_is_not_warned(self):
+		frappe.local.message_log = []
+		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
+
+		self.assertNotIn("default selling price list", self.messages())

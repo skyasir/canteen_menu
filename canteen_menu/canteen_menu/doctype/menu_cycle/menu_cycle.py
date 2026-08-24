@@ -21,6 +21,7 @@ class MenuCycle(Document):
 		self.validate_unique_rows()
 		self.validate_no_overlapping_cycle()
 		self.validate_consistent_rates()
+		self.warn_if_price_list_is_the_site_default()
 		self.warn_if_price_list_shared()
 
 	def on_update(self):
@@ -115,6 +116,29 @@ class MenuCycle(Document):
 					)
 				)
 			rates[key] = flt(row.rate)
+
+	def warn_if_price_list_is_the_site_default(self):
+		"""A canteen on the default price list rewrites everyone's selling prices.
+
+		Menu rates are pushed onto the POS Profile's price list. If that is the
+		site's default, every quotation, sales order and invoice reads the same
+		list, and a menu row for an item sold elsewhere silently reprices it.
+		"""
+		if not (self.is_active and self.pos_profile):
+			return
+
+		price_list = frappe.db.get_value("POS Profile", self.pos_profile, "selling_price_list")
+		if not price_list or price_list != frappe.db.get_single_value("Selling Settings", "selling_price_list"):
+			return
+
+		frappe.msgprint(
+			_("{0} sells on {1}, which is this site's default selling price list. Menu rates are "
+			  "written to it, so a menu row for an item you also sell elsewhere will reprice it on "
+			  "quotations, sales orders and invoices too. Give {0} its own Price List on its POS "
+			  "Profile to keep the menu to itself.").format(self.pos_profile, price_list),
+			title=_("Menu is pricing into the default price list"),
+			indicator="orange",
+		)
 
 	def warn_if_price_list_shared(self):
 		"""Flag - but do not block - two canteens pricing one item differently.
