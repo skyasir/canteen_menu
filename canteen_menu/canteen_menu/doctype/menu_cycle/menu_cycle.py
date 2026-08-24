@@ -4,17 +4,20 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, flt, getdate
+from frappe.utils import flt, getdate
+
+
+def same_date(a, b) -> bool:
+	"""Date equality that treats blank as blank, not as today."""
+	return (getdate(a) if a else None) == (getdate(b) if b else None)
 
 
 class MenuCycle(Document):
 	def validate(self):
 		self.validate_dates()
-		self.validate_cycle_length()
 		self.validate_items_present()
 		# Fills in UOM, which the rate comparisons below key on - must run first.
 		self.fill_item_details()
-		self.validate_day_numbers()
 		self.validate_unique_rows()
 		self.validate_no_overlapping_cycle()
 		self.validate_consistent_rates()
@@ -24,38 +27,50 @@ class MenuCycle(Document):
 		self.sync_menu_rates()
 
 	def validate_dates(self):
-		if self.from_date and self.to_date and getdate(self.to_date) < getdate(self.from_date):
-			frappe.throw(_("To Date cannot be before From Date"))
-
-	def validate_cycle_length(self):
-		if cint(self.cycle_length) < 1:
-			frappe.throw(_("Cycle Length (Days) must be at least 1"))
+		if self.to_date and getdate(self.to_date) < getdate(self.from_date):
+			frappe.throw(_("Until cannot be before Starts On"))
 
 	def validate_items_present(self):
 		if not self.items:
 			frappe.throw(_("Add at least one menu item"))
 
-	def validate_day_numbers(self):
-		for row in self.items:
-			day = cint(row.day_number)
-			if day < 1 or day > cint(self.cycle_length):
-				frappe.throw(
-					_("Row #{0}: Day No {1} must be between 1 and {2}").format(
-						row.idx, day, self.cycle_length
-					)
-				)
-
 	def validate_unique_rows(self):
 		seen: dict[tuple, int] = {}
 		for row in self.items:
-			key = (cint(row.day_number), row.meal_type, row.item_code)
+			key = (row.weekday, row.meal_type, row.item_code)
 			if key in seen:
 				frappe.throw(
-					_("Row #{0}: {1} is already listed for Day {2} {3} (row {4})").format(
-						row.idx, row.item_code, cint(row.day_number), row.meal_type, seen[key]
+					_("Row #{0}: {1} is already listed for {2} {3} (row {4})").format(
+						row.idx, row.item_code, row.weekday, row.meal_type, seen[key]
 					)
 				)
 			seen[key] = row.idx
+
+	def overlapping_active_cycles(self, *conditions) -> list[frappe._dict]:
+		"""Other active cycles whose run overlaps this one's.
+
+		A blank `to_date` on either side means "no end", so the overlap test
+		has to treat it as open rather than as a date.
+		"""
+		cycle = frappe.qb.DocType("Menu Cycle")
+
+		query = (
+			frappe.qb.from_(cycle)
+			.select(cycle.name, cycle.cycle_name, cycle.pos_profile)
+			.where(
+				(cycle.name != (self.name or "new"))
+				& (cycle.is_active == 1)
+				& (cycle.to_date.isnull() | (cycle.to_date >= self.from_date))
+			)
+		)
+
+		if self.to_date:
+			query = query.where(cycle.from_date <= self.to_date)
+
+		for condition in conditions:
+			query = query.where(condition)
+
+		return query.run(as_dict=True)
 
 	def validate_no_overlapping_cycle(self):
 		"""Two active cycles covering the same day would make the menu ambiguous.
@@ -64,27 +79,17 @@ class MenuCycle(Document):
 		resolves the menu by, and on the Branch, because that is the canteen
 		a human thinks in.
 		"""
-		if not (self.is_active and self.from_date and self.to_date):
+		if not (self.is_active and self.from_date):
 			return
+
+		cycle = frappe.qb.DocType("Menu Cycle")
 
 		for fieldname in ("pos_profile", "branch"):
 			value = self.get(fieldname)
 			if not value:
 				continue
 
-			clash = frappe.get_all(
-				"Menu Cycle",
-				filters={
-					"name": ["!=", self.name or "new"],
-					fieldname: value,
-					"is_active": 1,
-					"from_date": ["<=", self.to_date],
-					"to_date": [">=", self.from_date],
-				},
-				fields=["name", "cycle_name"],
-				limit=1,
-			)
-
+			clash = self.overlapping_active_cycles(cycle[fieldname] == value)
 			if clash:
 				frappe.throw(
 					_("{0} is already active for {1} over these dates. "
@@ -104,7 +109,7 @@ class MenuCycle(Document):
 			key = (row.item_code, row.uom or "")
 			if key in rates and flt(rates[key]) != flt(row.rate):
 				frappe.throw(
-					_("Row #{0}: {1} is priced {2} here but {3} elsewhere in this cycle. "
+					_("Row #{0}: {1} is priced {2} here but {3} elsewhere in this menu. "
 					  "One item can carry only one price per UOM.").format(
 						row.idx, row.item_code, flt(row.rate), flt(rates[key])
 					)
@@ -119,7 +124,7 @@ class MenuCycle(Document):
 		overwrite the first one's rates. Caught here rather than discovered at
 		the till.
 		"""
-		if not (self.is_active and self.pos_profile and self.from_date and self.to_date):
+		if not (self.is_active and self.pos_profile and self.from_date):
 			return
 
 		price_list = frappe.db.get_value("POS Profile", self.pos_profile, "selling_price_list")
@@ -134,19 +139,9 @@ class MenuCycle(Document):
 		if not my_rates:
 			return
 
-		others = frappe.get_all(
-			"Menu Cycle",
-			filters={
-				"name": ["!=", self.name or "new"],
-				"is_active": 1,
-				# "!=" also drops rows with no POS Profile, which cannot reach a till anyway.
-				# (A "not in" list containing NULL matches nothing in SQL.)
-				"pos_profile": ["!=", self.pos_profile],
-				"from_date": ["<=", self.to_date],
-				"to_date": [">=", self.from_date],
-			},
-			fields=["name", "cycle_name", "pos_profile"],
-		)
+		cycle = frappe.qb.DocType("Menu Cycle")
+		# "!=" also drops rows with no POS Profile, which cannot reach a till anyway.
+		others = self.overlapping_active_cycles(cycle.pos_profile != self.pos_profile)
 
 		for other in others:
 			if frappe.db.get_value("POS Profile", other.pos_profile, "selling_price_list") != price_list:
@@ -247,14 +242,14 @@ class MenuCycle(Document):
 			price = frappe.get_doc("Item Price", existing[0].name)
 			if (
 				flt(price.price_list_rate) == flt(row.rate)
-				and getdate(price.valid_from) == getdate(self.from_date)
-				and getdate(price.valid_upto) == getdate(self.to_date)
+				and same_date(price.valid_from, self.from_date)
+				and same_date(price.valid_upto, self.to_date)
 			):
 				return False
 
 			price.price_list_rate = flt(row.rate)
 			price.valid_from = self.from_date
-			price.valid_upto = self.to_date
+			price.valid_upto = self.to_date or None
 			price.save()
 			return True
 
@@ -268,7 +263,7 @@ class MenuCycle(Document):
 				"currency": currency,
 				"price_list_rate": flt(row.rate),
 				"valid_from": self.from_date,
-				"valid_upto": self.to_date,
+				"valid_upto": self.to_date or None,
 			}
 		).insert()
 		return True

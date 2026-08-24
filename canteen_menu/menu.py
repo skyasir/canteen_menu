@@ -1,13 +1,21 @@
 """Resolution of the live canteen menu.
 
-Answers two questions for a canteen (a POS Profile) on a given date:
-which Menu Cycle is running, and which items that cycle puts on the counter
-today. Everything that needs to know "what is on the menu right now" - the
-POS override, the desk preview, the tests - goes through here.
+A Menu Cycle is a weekly menu: each row names the weekday it is served on,
+and the menu repeats every week from `from_date` until `to_date` (blank means
+it just keeps running). Everything that needs to know "what is on the menu
+right now" - the POS override, the desk preview, the tests - goes through here.
 """
 
 import frappe
-from frappe.utils import cint, getdate
+from frappe.query_builder import Order
+from frappe.utils import getdate
+
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def get_weekday(on_date=None) -> str:
+	"""'Monday' ... 'Sunday' for the given date (today when omitted)."""
+	return WEEKDAYS[getdate(on_date).weekday()]
 
 
 def get_active_cycle(pos_profile: str, on_date=None) -> frappe._dict | None:
@@ -20,39 +28,24 @@ def get_active_cycle(pos_profile: str, on_date=None) -> frappe._dict | None:
 		return None
 
 	on_date = getdate(on_date)
-	cycles = frappe.get_all(
-		"Menu Cycle",
-		filters={
-			"pos_profile": pos_profile,
-			"is_active": 1,
-			"from_date": ["<=", on_date],
-			"to_date": [">=", on_date],
-		},
-		fields=["name", "from_date", "to_date", "rotation_type", "cycle_length"],
-		order_by="from_date desc, modified desc",
-		limit=1,
-	)
+	cycle = frappe.qb.DocType("Menu Cycle")
 
-	return cycles[0] if cycles else None
+	rows = (
+		frappe.qb.from_(cycle)
+		.select(cycle.name, cycle.from_date, cycle.to_date)
+		.where(
+			(cycle.pos_profile == pos_profile)
+			& (cycle.is_active == 1)
+			& (cycle.from_date <= on_date)
+			# a blank end date means the menu has no end
+			& (cycle.to_date.isnull() | (cycle.to_date >= on_date))
+		)
+		.orderby(cycle.from_date, order=Order.desc)
+		.orderby(cycle.modified, order=Order.desc)
+		.limit(1)
+	).run(as_dict=True)
 
-
-def get_day_number(cycle, on_date=None) -> int:
-	"""Which day of the rotation `on_date` falls on. `from_date` is day 1."""
-	on_date = getdate(on_date)
-	from_date = getdate(cycle.from_date)
-	length = cint(cycle.cycle_length) or 1
-
-	if on_date < from_date:
-		return 1
-
-	if cycle.rotation_type == "Weekly":
-		elapsed = (on_date - from_date).days // 7
-	elif cycle.rotation_type == "Monthly":
-		elapsed = (on_date.year - from_date.year) * 12 + (on_date.month - from_date.month)
-	else:
-		elapsed = (on_date - from_date).days
-
-	return (elapsed % length) + 1
+	return rows[0] if rows else None
 
 
 def get_menu_rows(pos_profile: str, on_date=None) -> list[frappe._dict]:
@@ -61,16 +54,14 @@ def get_menu_rows(pos_profile: str, on_date=None) -> list[frappe._dict]:
 	if not cycle:
 		return []
 
-	day = get_day_number(cycle, on_date)
-
 	return frappe.get_all(
 		"Menu Cycle Item",
 		filters={
 			"parenttype": "Menu Cycle",
 			"parent": cycle.name,
-			"day_number": day,
+			"weekday": get_weekday(on_date),
 		},
-		fields=["item_code", "item_name", "meal_type", "uom", "planned_qty", "rate", "day_number"],
+		fields=["item_code", "item_name", "meal_type", "uom", "planned_qty", "rate", "weekday"],
 		order_by="idx asc",
 	)
 

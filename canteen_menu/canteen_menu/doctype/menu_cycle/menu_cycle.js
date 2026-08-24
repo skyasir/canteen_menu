@@ -4,10 +4,15 @@
 frappe.ui.form.on("Menu Cycle", {
 	refresh(frm) {
 		frm.trigger("set_menu_buttons");
+		frm.trigger("show_todays_menu");
 	},
 
 	menu_item_template(frm) {
 		frm.trigger("set_menu_buttons");
+	},
+
+	pos_profile(frm) {
+		frm.trigger("show_todays_menu");
 	},
 
 	set_menu_buttons(frm) {
@@ -16,10 +21,42 @@ frappe.ui.form.on("Menu Cycle", {
 		if (frm.doc.menu_item_template) {
 			frm.add_custom_button(__("Fetch Items from Template"), () => frm.trigger("fetch_template_items"));
 		}
+	},
 
-		if (!frm.is_new() && frm.doc.pos_profile) {
-			frm.add_custom_button(__("Preview Today's Menu"), () => frm.trigger("preview_menu"));
+	// Says in words what POS is serving right now, so nobody has to work it out.
+	show_todays_menu(frm) {
+		if (frm.is_new() || !frm.doc.pos_profile) {
+			frm.set_intro("");
+			return;
 		}
+
+		frappe.call({
+			method: "canteen_menu.api.pos.preview_menu",
+			args: { pos_profile: frm.doc.pos_profile },
+			callback: ({ message }) => {
+				if (!message) return;
+
+				if (message.cycle !== frm.doc.name) {
+					frm.set_intro(
+						__("Today is {0}. {1} is serving at {2} right now, not this menu.", [
+							message.weekday,
+							message.cycle || __("No menu"),
+							frm.doc.pos_profile,
+						]),
+						"orange"
+					);
+					return;
+				}
+
+				const count = (message.items || []).length;
+				frm.set_intro(
+					count
+						? __("Today is {0} — POS is showing the {1} {0} item(s) below.", [message.weekday, count])
+						: __("Today is {0} — nothing is listed for {0}, so POS shows no items.", [message.weekday]),
+					count ? "blue" : "orange"
+				);
+			},
+		});
 	},
 
 	fetch_template_items(frm) {
@@ -34,14 +71,14 @@ frappe.ui.form.on("Menu Cycle", {
 					return;
 				}
 
-				// Skip rows already on the cycle for the same day, meal and item.
+				// Skip rows already on the menu for the same day, meal and item.
 				const existing = new Set(
-					(frm.doc.items || []).map((d) => `${d.day_number}|${d.meal_type}|${d.item_code}`)
+					(frm.doc.items || []).map((d) => `${d.weekday}|${d.meal_type}|${d.item_code}`)
 				);
 
 				let added = 0;
 				rows.forEach((row) => {
-					if (existing.has(`${row.day_number}|${row.meal_type}|${row.item_code}`)) return;
+					if (existing.has(`${row.weekday}|${row.meal_type}|${row.item_code}`)) return;
 					frm.add_child("items", row);
 					added += 1;
 				});
@@ -50,50 +87,6 @@ frappe.ui.form.on("Menu Cycle", {
 				frappe.show_alert({
 					message: __("{0} of {1} row(s) added", [added, rows.length]),
 					indicator: added ? "green" : "orange",
-				});
-			},
-		});
-	},
-
-	preview_menu(frm) {
-		frappe.call({
-			method: "canteen_menu.api.pos.preview_menu",
-			args: { pos_profile: frm.doc.pos_profile },
-			callback: ({ message }) => {
-				if (!message || !message.cycle) {
-					frappe.msgprint({
-						title: __("Nothing on the menu"),
-						message: __("No active Menu Cycle covers today for {0}, so POS shows all items.", [
-							frm.doc.pos_profile,
-						]),
-						indicator: "orange",
-					});
-					return;
-				}
-
-				const rows = (message.items || [])
-					.map(
-						(d) => `<tr>
-							<td>${frappe.utils.escape_html(d.meal_type || "")}</td>
-							<td>${frappe.utils.escape_html(d.item_code || "")}</td>
-							<td>${frappe.utils.escape_html(d.item_name || "")}</td>
-							<td class="text-right">${format_currency(d.rate)}</td>
-						</tr>`
-					)
-					.join("");
-
-				frappe.msgprint({
-					title: __("Day {0} of {1}", [message.day_number, message.cycle]),
-					message: rows
-						? `<table class="table table-bordered">
-								<thead><tr>
-									<th>${__("Meal")}</th><th>${__("Item")}</th>
-									<th>${__("Name")}</th><th class="text-right">${__("Rate")}</th>
-								</tr></thead>
-								<tbody>${rows}</tbody>
-							</table>`
-						: __("This cycle has nothing scheduled for today, so POS will show no items."),
-					wide: true,
 				});
 			},
 		});

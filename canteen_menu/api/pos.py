@@ -26,7 +26,7 @@ from erpnext.selling.page.point_of_sale.point_of_sale import (
 from erpnext.selling.page.point_of_sale.point_of_sale import get_items as erpnext_get_items
 from erpnext.stock.get_item_details import get_conversion_factor
 
-from canteen_menu.menu import get_active_cycle, get_day_number, get_menu_item_codes, get_menu_rows
+from canteen_menu.menu import get_active_cycle, get_menu_item_codes, get_menu_rows, get_weekday
 
 
 @frappe.whitelist()
@@ -190,10 +190,11 @@ def preview_menu(pos_profile: str, on_date: str | None = None) -> dict:
 
 	cycle = get_active_cycle(pos_profile, on_date)
 	if not cycle:
-		return {"cycle": None, "day_number": None, "items": []}
+		return {"cycle": None, "weekday": get_weekday(on_date), "items": []}
 
 	return {
 		"cycle": cycle.name,
-		"day_number": get_day_number(cycle, on_date),
+		"cycle_name": frappe.db.get_value("Menu Cycle", cycle.name, "cycle_name"),
+		"weekday": get_weekday(on_date),
 		"items": get_menu_rows(pos_profile, on_date),
 	}
