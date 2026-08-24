@@ -15,7 +15,7 @@ add_to_apps_screen = [
 		"name": app_name,
 		"logo": "/assets/canteen_menu/images/canteen-menu-logo.svg",
 		"title": app_title,
-		"route": "/app/canteen-menu",
+		"route": "/desk/canteen-menu",
 		"has_permission": "canteen_menu.permissions.check_app_permission",
 	}
 ]
