@@ -1,0 +1,205 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-16 00:33:49.915082",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "cycle_name",
+  "branch",
+  "pos_profile",
+  "company",
+  "col_break_mc_1",
+  "rotation_type",
+  "cycle_length",
+  "is_active",
+  "sec_validity",
+  "from_date",
+  "col_break_mc_2",
+  "to_date",
+  "sec_items",
+  "menu_item_template",
+  "items",
+  "sec_meta",
+  "notes"
+ ],
+ "fields": [
+  {
+   "default": "MC-.YYYY.-",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Series",
+   "options": "MC-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "description": "e.g. 'Week A - Main Canteen'",
+   "fieldname": "cycle_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Cycle Name",
+   "reqd": 1
+  },
+  {
+   "description": "The canteen location this cycle belongs to",
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Branch (Canteen)",
+   "options": "Branch",
+   "reqd": 1
+  },
+  {
+   "description": "POS Profile used at this canteen",
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "label": "POS Profile",
+   "options": "POS Profile"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_break_mc_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Daily",
+   "description": "How the cycle advances through its days",
+   "fieldname": "rotation_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Rotation",
+   "options": "Daily\nWeekly\nMonthly",
+   "reqd": 1
+  },
+  {
+   "default": "7",
+   "description": "Number of distinct days in this cycle before it repeats",
+   "fieldname": "cycle_length",
+   "fieldtype": "Int",
+   "label": "Cycle Length (Days)",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "sec_validity",
+   "fieldtype": "Section Break",
+   "label": "Validity"
+  },
+  {
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "From Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_break_mc_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "To Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_items",
+   "fieldtype": "Section Break",
+   "label": "Menu Items"
+  },
+  {
+   "fieldname": "menu_item_template",
+   "fieldtype": "Link",
+   "label": "Menu Item Template",
+   "options": "Menu Item Template"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Menu Cycle Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_meta",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-25 01:50:23.115186",
+ "modified_by": "Administrator",
+ "module": "Canteen Menu",
+ "name": "Menu Cycle",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "cycle_name,branch,from_date,to_date",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "cycle_name"
+}
