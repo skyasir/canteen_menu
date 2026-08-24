@@ -20,7 +20,7 @@ class MenuCycle(Document):
 		self.fill_item_details()
 		self.warn_if_rows_repeat()
 		self.warn_if_another_menu_overlaps()
-		self.warn_if_rates_disagree()
+		self.validate_consistent_rates()
 		self.warn_if_price_list_is_the_site_default()
 		self.warn_if_price_list_shared()
 
@@ -129,46 +129,22 @@ class MenuCycle(Document):
 			)
 			return
 
-	def warn_if_rates_disagree(self):
-		"""Flag - but do not block - one item carrying two prices in this menu.
-
-		A price list holds one rate per item and UOM, so a breakfast chapati at
-		12 and a dinner chapati at 40 cannot both reach the counter. Whichever
-		row is last is what gets charged. Worth saying out loud; not worth
-		refusing the save over.
-		"""
-		rows_by_item: dict[tuple[str, str], list[tuple[int, float]]] = {}
+	def validate_consistent_rates(self):
+		"""One item can only carry one selling price, so the cycle must agree with itself."""
+		rates: dict[tuple[str, str], float] = {}
 		for row in self.items:
 			if not row.item_code or not flt(row.rate):
 				continue
-			rows_by_item.setdefault((row.item_code, row.uom or ""), []).append((row.idx, flt(row.rate)))
 
-		clashes = []
-		for (item_code, _uom), entries in rows_by_item.items():
-			if len({rate for _idx, rate in entries}) < 2:
-				continue
-
-			listed = ", ".join(_("{0} (row {1})").format(rate, idx) for idx, rate in entries)
-			clashes.append(
-				_("{0} - {1}. The counter will charge {2}.").format(
-					item_code, listed, entries[-1][1]
+			key = (row.item_code, row.uom or "")
+			if key in rates and flt(rates[key]) != flt(row.rate):
+				frappe.throw(
+					_("Row #{0}: {1} is priced {2} here but {3} elsewhere in this menu. "
+					  "One item can carry only one price per UOM.").format(
+						row.idx, row.item_code, flt(row.rate), flt(rates[key])
+					)
 				)
-			)
-
-		if not clashes:
-			return
-
-		frappe.msgprint(
-			_("These items are listed at more than one price in this menu:")
-			+ "<ul><li>"
-			+ "</li><li>".join(clashes)
-			+ "</li></ul>"
-			+ _("A price list holds one rate per item and UOM, so the last row wins. "
-			    "To charge different prices for the same dish, sell it as separate items "
-			    "(for example a breakfast and a dinner portion)."),
-			title=_("One item, two prices"),
-			indicator="orange",
-		)
+			rates[key] = flt(row.rate)
 
 	def warn_if_price_list_is_the_site_default(self):
 		"""A canteen on the default price list rewrites everyone's selling prices.

@@ -273,26 +273,22 @@ class TestMenuPricing(CanteenTestCase):
 		make_cycle(self.pos_profile, [(self.today, self.items[1])], rate=99, active=0)
 		self.assertEqual(before, self.get_price(self.items[1]))
 
-	def test_conflicting_rates_across_days_are_warned_not_blocked(self):
-		frappe.local.message_log = []
-		cycle = frappe.get_doc({
-			"doctype": "Menu Cycle",
-			"cycle_name": frappe.generate_hash(length=10),
-			"branch": make_branch(),
-			"pos_profile": self.pos_profile,
-			"company": frappe.db.get_value("POS Profile", self.pos_profile, "company"),
-			"is_active": 1,
-			"from_date": today(),
-			"items": [
-				{"weekday": self.today, "meal_type": "Lunch", "item_code": self.items[0], "rate": 10},
-				{"weekday": self.tomorrow, "meal_type": "Lunch", "item_code": self.items[0], "rate": 20},
-			],
-		}).insert()
-
-		self.assertTrue(frappe.db.exists("Menu Cycle", cycle.name), "the save must go through")
-		self.assertIn("One item, two prices", self.messages())
-		# the last row is what reaches the price list
-		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 20)
+	def test_one_item_cannot_carry_two_prices_in_a_menu(self):
+		"""A price list holds one rate per item and UOM - the second would vanish."""
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc({
+				"doctype": "Menu Cycle",
+				"cycle_name": frappe.generate_hash(length=10),
+				"branch": make_branch(),
+				"pos_profile": self.pos_profile,
+				"company": frappe.db.get_value("POS Profile", self.pos_profile, "company"),
+				"is_active": 1,
+				"from_date": today(),
+				"items": [
+					{"weekday": self.today, "meal_type": "Lunch", "item_code": self.items[0], "rate": 10},
+					{"weekday": self.tomorrow, "meal_type": "Lunch", "item_code": self.items[0], "rate": 20},
+				],
+			}).insert()
 
 	def test_canteens_sharing_a_price_list_are_warned_not_blocked(self):
 		other = make_pos_profile(self.base_profile, self.price_list)
