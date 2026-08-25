@@ -347,3 +347,36 @@ class TestMenuPricing(CanteenTestCase):
 		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
 
 		self.assertNotIn("default selling price list", self.messages())
+
+
+class TestMealTypes(CanteenTestCase):
+	"""Meals are a master you control, not a hardcoded list."""
+
+	def row(self, meal):
+		return frappe.get_doc({
+			"doctype": "Menu Cycle",
+			"cycle_name": frappe.generate_hash(length=10),
+			"branch": make_branch(),
+			"pos_profile": self.pos_profile,
+			"company": frappe.db.get_value("POS Profile", self.pos_profile, "company"),
+			"is_active": 1,
+			"from_date": today(),
+			"items": [{"weekday": self.today, "meal_type": meal, "item_code": self.items[0]}],
+		})
+
+	def test_the_default_meals_are_seeded(self):
+		for meal in ("Breakfast", "Lunch", "Dinner", "Snacks"):
+			self.assertTrue(frappe.db.exists("Meal Type", meal), f"{meal} should exist")
+
+	def test_an_unknown_meal_is_rejected(self):
+		with self.assertRaises(frappe.exceptions.LinkValidationError):
+			self.row("Elevenses").insert()
+
+	def test_a_meal_you_add_yourself_works(self):
+		frappe.get_doc({"doctype": "Meal Type", "meal_name": "Iftar", "sequence": 65}).insert()
+
+		cycle = self.row("Iftar")
+		cycle.insert()
+
+		self.assertEqual(cycle.items[0].meal_type, "Iftar")
+		self.assertIn(self.items[0], get_menu_item_codes(self.pos_profile))

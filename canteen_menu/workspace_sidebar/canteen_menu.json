@@ -69,6 +69,18 @@
   {
    "child": 0,
    "collapsible": 1,
+   "icon": "utensils-crossed",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Meal Type",
+   "link_to": "Meal Type",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 0,
+   "collapsible": 1,
    "icon": "store",
    "indent": 0,
    "keep_closed": 0,
@@ -173,8 +185,9 @@
    "type": "Link"
   }
  ],
- "modified": "2026-08-25 03:06:54.431772",
+ "modified": "2026-08-25 13:03:49.087180",
  "modified_by": "Administrator",
+ "module": "Canteen Menu",
  "name": "Canteen Menu",
  "owner": "Administrator",
  "standard": 1,

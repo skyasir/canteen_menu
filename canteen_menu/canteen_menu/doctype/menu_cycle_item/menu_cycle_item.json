@@ -20,11 +20,12 @@
  "fields": [
   {
    "columns": 1,
+   "description": "Add your own in Meal Type - Iftar, Crew Meal, Late Shift...",
    "fieldname": "meal_type",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Meal",
-   "options": "Breakfast\nLunch\nDinner\nSnacks",
+   "options": "Meal Type",
    "reqd": 1
   },
   {
@@ -90,7 +91,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-08-25 02:33:26.842305",
+ "modified": "2026-08-25 13:02:48.837127",
  "modified_by": "Administrator",
  "module": "Canteen Menu",
  "name": "Menu Cycle Item",
