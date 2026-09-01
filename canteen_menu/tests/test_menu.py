@@ -381,13 +381,27 @@ class TestMenuBoard(CanteenTestCase):
 		self.assertEqual(on_board, get_menu_item_codes(self.pos_profile))
 		self.assertEqual(data["total_dishes"], 2)
 
-	def test_the_board_reports_the_menu_and_its_period(self):
+	def test_the_board_reports_the_menu_and_everything_around_it(self):
 		cycle = make_cycle(self.pos_profile, [self.items[0]], until=add_days(today(), 6))
 
 		data = self.board()
-		self.assertEqual(data["cycle"], cycle.name)
-		self.assertEqual(getdate(data["from_date"]), getdate(cycle.from_date))
-		self.assertEqual(getdate(data["to_date"]), getdate(cycle.to_date))
+		self.assertEqual(data["cycle"]["name"], cycle.name)
+		self.assertEqual(getdate(data["cycle"]["from_date"]), getdate(cycle.from_date))
+		self.assertEqual(getdate(data["cycle"]["to_date"]), getdate(cycle.to_date))
+		# the board carries the cycle's own context, not just its items
+		for key in ("branch", "company", "pos_profile", "is_active", "cycle_name"):
+			self.assertIn(key, data["cycle"])
+		self.assertEqual(data["price_list"], self.price_list)
+
+	def test_the_board_lists_the_planned_weeks(self):
+		make_cycle(
+			self.pos_profile, [self.items[0]],
+			schedule=[{"from_date": today(), "to_date": add_days(today(), 6)}],
+		)
+
+		windows = self.board()["schedule"]
+		self.assertEqual(len(windows), 1)
+		self.assertEqual(windows[0]["is_current"], 1)
 
 	def test_a_canteen_with_no_menu_returns_an_empty_board(self):
 		data = self.board()

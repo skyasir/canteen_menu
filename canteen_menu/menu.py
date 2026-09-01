@@ -49,7 +49,7 @@ def get_menu_rows(pos_profile: str, on_date=None) -> list[frappe._dict]:
 	return frappe.get_all(
 		"Menu Cycle Item",
 		filters={"parenttype": "Menu Cycle", "parent": cycle.name},
-		fields=["item_code", "item_name", "uom", "planned_qty", "rate"],
+		fields=["item_code", "item_name", "uom", "planned_qty", "rate", "notes"],
 		order_by="idx asc",
 	)
 
