@@ -120,11 +120,11 @@ class MenuCycle(Document):
 		seen: dict[tuple, int] = {}
 		repeats = []
 		for row in self.items:
-			key = (row.weekday, row.meal_type, row.item_code)
+			key = (row.item_code, row.uom or "")
 			if key in seen:
 				repeats.append(
-					_("Row {0}: {1} is already listed for {2} {3} in row {4}").format(
-						row.idx, row.item_code, row.weekday, row.meal_type, seen[key]
+					_("Row {0}: {1} is already listed in row {2}").format(
+						row.idx, row.item_code, seen[key]
 					)
 				)
 			else:
@@ -133,8 +133,8 @@ class MenuCycle(Document):
 		if repeats:
 			frappe.msgprint(
 				"<ul><li>" + "</li><li>".join(repeats) + "</li></ul>"
-				+ _("Duplicate rows do not break anything - the item simply appears once on the "
-				    "POS screen - but they will double any planned quantity you report on."),
+				+ _("Duplicate rows do not break anything - the item appears once on the POS "
+				    "screen - but they will double any planned quantity you report on."),
 				title=_("Repeated rows"),
 				indicator="orange",
 			)

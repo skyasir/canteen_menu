@@ -38,9 +38,8 @@ frappe.ui.form.on("Menu Cycle", {
 
 				if (message.cycle !== frm.doc.name) {
 					frm.set_intro(
-						__("Today is {0}. {1} is serving at {2} right now, not this menu.", [
-							message.weekday,
-							message.cycle || __("No menu"),
+						__("{0} is serving at {1} right now, not this menu.", [
+							message.cycle_name || message.cycle || __("No menu"),
 							frm.doc.pos_profile,
 						]),
 						"orange"
@@ -51,8 +50,10 @@ frappe.ui.form.on("Menu Cycle", {
 				const count = (message.items || []).length;
 				frm.set_intro(
 					count
-						? __("Today is {0} — POS is showing the {1} {0} item(s) below.", [message.weekday, count])
-						: __("Today is {0} — nothing is listed for {0}, so POS shows no items.", [message.weekday]),
+						? __("Live at {0} — POS is showing the {1} item(s) below.", [frm.doc.pos_profile, count])
+						: __("Live at {0}, but this menu lists no items, so POS shows nothing.", [
+								frm.doc.pos_profile,
+						  ]),
 					count ? "blue" : "orange"
 				);
 			},
@@ -71,14 +72,12 @@ frappe.ui.form.on("Menu Cycle", {
 					return;
 				}
 
-				// Skip rows already on the menu for the same day, meal and item.
-				const existing = new Set(
-					(frm.doc.items || []).map((d) => `${d.weekday}|${d.meal_type}|${d.item_code}`)
-				);
+				// Skip items already on the menu.
+				const existing = new Set((frm.doc.items || []).map((d) => `${d.item_code}|${d.uom || ""}`));
 
 				let added = 0;
 				rows.forEach((row) => {
-					if (existing.has(`${row.weekday}|${row.meal_type}|${row.item_code}`)) return;
+					if (existing.has(`${row.item_code}|${row.uom || ""}`)) return;
 					frm.add_child("items", row);
 					added += 1;
 				});

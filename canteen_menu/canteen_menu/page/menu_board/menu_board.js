@@ -17,7 +17,6 @@ frappe.pages["menu-board"].on_page_show = function (wrapper) {
 class MenuBoard {
 	constructor(page) {
 		this.page = page;
-		this.date = frappe.datetime.get_today();
 		this.inject_styles();
 		this.make_controls();
 		this.body = $('<div class="menu-board">').appendTo(this.page.main);
@@ -33,13 +32,18 @@ class MenuBoard {
 			change: () => this.refresh(),
 		});
 
-		this.page.add_inner_button(__("◀"), () => this.shift_week(-7));
-		this.page.add_inner_button(__("Today"), () => {
-			this.date = frappe.datetime.get_today();
-			this.refresh();
+		this.date_field = this.page.add_field({
+			fieldtype: "Date",
+			label: __("On"),
+			fieldname: "on_date",
+			default: frappe.datetime.get_today(),
+			change: () => this.refresh(),
 		});
-		this.page.add_inner_button(__("▶"), () => this.shift_week(7));
+		this.date_field.set_value(frappe.datetime.get_today());
 
+		this.page.add_inner_button(__("Today"), () => {
+			this.date_field.set_value(frappe.datetime.get_today());
+		});
 		this.page.set_secondary_action(__("Print"), () => window.print());
 
 		// Default to the first canteen so the board is never blank on arrival.
@@ -50,110 +54,95 @@ class MenuBoard {
 		});
 	}
 
-	shift_week(days) {
-		this.date = frappe.datetime.add_days(this.date, days);
-		this.refresh();
-	}
-
 	refresh() {
 		const canteen = this.canteen_field && this.canteen_field.get_value();
 		if (!canteen) {
-			this.body.html(this.empty_state(__("Pick a canteen to see its week.")));
+			this.body.html(this.blank(__("Pick a canteen to see what it is serving.")));
 			return;
 		}
 
 		frappe.call({
 			method: "canteen_menu.api.board.get_menu_board",
-			args: { pos_profile: canteen, on_date: this.date },
+			args: { pos_profile: canteen, on_date: this.date_field.get_value() },
 			callback: ({ message }) => message && this.render(message),
 		});
 	}
 
 	render(data) {
-		this.page.set_title(__("Menu Board"));
 		this.page.set_indicator(
-			data.total_dishes ? __("{0} dishes this week", [data.total_dishes]) : __("Nothing planned"),
+			data.total_dishes ? __("{0} on the menu", [data.total_dishes]) : __("No menu"),
 			data.total_dishes ? "green" : "orange"
 		);
 
-		if (!data.meals.length) {
+		if (!data.cycle) {
 			this.body.html(
-				this.summary(data) +
-					this.empty_state(
-						__("No menu runs at {0} in this week. POS shows the full item list on these days.", [
-							data.canteen,
-						])
+				this.header(data) +
+					this.blank(
+						__("No menu runs at {0} on this date, so POS shows the full item list.", [data.canteen])
 					)
 			);
 			return;
 		}
 
-		const head = data.days
+		const cards = data.dishes
 			.map(
-				(day) => `
-				<div class="mb-day-head ${day.is_today ? "is-today" : ""} ${day.is_past ? "is-past" : ""}">
-					<div class="mb-day-name">${__(day.weekday).slice(0, 3)}</div>
-					<div class="mb-day-date">${frappe.datetime.str_to_user(day.date)}</div>
-					${day.is_today ? `<div class="mb-today-pill">${__("Today")}</div>` : ""}
+				(dish) => `
+				<div class="mb-dish">
+					<div class="mb-dish-top">
+						<div class="mb-dish-name">${frappe.utils.escape_html(dish.item_name)}</div>
+						${dish.rate ? `<div class="mb-dish-rate">${format_currency(dish.rate, data.currency)}</div>` : ""}
+					</div>
+					<div class="mb-dish-foot">
+						<span class="mb-code">${frappe.utils.escape_html(dish.item_code)}</span>
+						${
+							dish.planned_qty
+								? `<span class="mb-qty">${__("plan")} ${format_number(dish.planned_qty)} ${frappe.utils.escape_html(
+										dish.uom || ""
+								  )}</span>`
+								: ""
+						}
+					</div>
 				</div>`
 			)
 			.join("");
 
-		const rows = data.meals
-			.map((meal) => {
-				const cells = data.days
-					.map((day) => {
-						const items = day.meals[meal] || [];
-						if (!items.length) {
-							return `<div class="mb-cell ${day.is_today ? "is-today" : ""}"><span class="mb-empty">—</span></div>`;
-						}
-						const chips = items
-							.map(
-								(item) => `
-								<div class="mb-dish" title="${frappe.utils.escape_html(item.item_code)}">
-									<span class="mb-dish-name">${frappe.utils.escape_html(item.item_name)}</span>
-									${item.rate ? `<span class="mb-dish-rate">${format_currency(item.rate, data.currency)}</span>` : ""}
-								</div>`
-							)
-							.join("");
-						return `<div class="mb-cell ${day.is_today ? "is-today" : ""}">${chips}</div>`;
-					})
-					.join("");
-				return `<div class="mb-meal-label">${__(meal)}</div>${cells}`;
-			})
-			.join("");
-
-		this.body.html(`
-			${this.summary(data)}
-			<div class="mb-grid-wrap">
-				<div class="mb-grid">
-					<div class="mb-corner"></div>
-					${head}
-					${rows}
-				</div>
-			</div>
-		`);
+		this.body.html(
+			this.header(data) +
+				(data.dishes.length
+					? `<div class="mb-grid">${cards}</div>`
+					: this.blank(__("This menu lists no items, so POS shows nothing at this counter.")))
+		);
 	}
 
-	summary(data) {
-		const cycles = [...new Set(data.days.map((d) => d.cycle_name).filter(Boolean))];
+	header(data) {
+		const period = data.from_date
+			? `${frappe.datetime.str_to_user(data.from_date)} — ${
+					data.to_date ? frappe.datetime.str_to_user(data.to_date) : __("until further notice")
+			  }`
+			: "";
+
 		return `
-			<div class="mb-summary">
+			<div class="mb-head">
 				<div>
 					<div class="mb-canteen">${frappe.utils.escape_html(data.canteen)}</div>
-					<div class="mb-week">${frappe.datetime.str_to_user(data.week_start)} — ${frappe.datetime.str_to_user(
-						data.week_end
-					)}</div>
+					<div class="mb-sub">${
+						data.cycle_name ? frappe.utils.escape_html(data.cycle_name) : __("No menu")
+					}${period ? ` &middot; ${period}` : ""}</div>
 				</div>
-				<div class="mb-cycles">${
-					cycles.length
-						? cycles.map((c) => `<span class="mb-tag">${frappe.utils.escape_html(c)}</span>`).join("")
-						: `<span class="mb-tag mb-tag-muted">${__("No menu")}</span>`
-				}</div>
+				<div class="mb-stats">
+					<div class="mb-stat"><b>${data.total_dishes}</b><span>${__("dishes")}</span></div>
+					${
+						data.total_planned
+							? `<div class="mb-stat"><b>${format_number(data.total_planned)}</b><span>${__(
+									"planned"
+							  )}</span></div>`
+							: ""
+					}
+				</div>
 			</div>`;
 	}
 
-	empty_state(message) {
+	blank(message) {
 		return `<div class="mb-blank">${message}</div>`;
 	}
 
@@ -163,77 +152,63 @@ class MenuBoard {
 		$(`<style id="menu-board-styles">
 			.menu-board { padding-bottom: 2rem; }
 
-			.mb-summary {
-				display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-				flex-wrap: wrap; margin: 0 0 1rem 0;
+			.mb-head {
+				display: flex; align-items: center; justify-content: space-between;
+				gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
 			}
-			.mb-canteen { font-size: 1.35rem; font-weight: 650; color: var(--text-color, #1f272e); }
-			.mb-week { color: var(--text-muted, #8d99a6); font-size: 0.85rem; margin-top: 2px; }
-			.mb-tag {
-				display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem;
-				background: var(--bg-blue, rgba(36,144,239,.12)); color: var(--blue-600, #2490ef);
-				margin-left: 6px; font-weight: 550;
+			.mb-canteen { font-size: 1.4rem; font-weight: 650; color: var(--text-color, #1f272e); }
+			.mb-sub { color: var(--text-muted, #8d99a6); font-size: .85rem; margin-top: 3px; }
+			.mb-stats { display: flex; gap: 1.5rem; }
+			.mb-stat { text-align: right; }
+			.mb-stat b { display: block; font-size: 1.4rem; font-weight: 650; color: var(--text-color, #1f272e); }
+			.mb-stat span {
+				font-size: .7rem; text-transform: uppercase; letter-spacing: .06em;
+				color: var(--text-muted, #8d99a6);
 			}
-			.mb-tag-muted { background: var(--bg-gray, rgba(140,150,160,.15)); color: var(--text-muted, #8d99a6); }
 
-			.mb-grid-wrap { overflow-x: auto; }
 			.mb-grid {
-				display: grid;
-				grid-template-columns: 110px repeat(7, minmax(150px, 1fr));
-				gap: 8px; min-width: 900px;
+				display: grid; gap: 12px;
+				grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
 			}
-
-			.mb-corner { }
-			.mb-day-head {
-				text-align: center; padding: 10px 6px; border-radius: var(--border-radius-md, 8px);
-				background: var(--fg-color, #fff); border: 1px solid var(--border-color, #e2e6e9);
-			}
-			.mb-day-head.is-today {
-				border-color: var(--blue-500, #2490ef);
-				box-shadow: 0 0 0 1px var(--blue-500, #2490ef) inset;
-			}
-			.mb-day-head.is-past { opacity: .55; }
-			.mb-day-name { font-weight: 650; color: var(--text-color, #1f272e); letter-spacing: .02em; }
-			.mb-day-date { font-size: .75rem; color: var(--text-muted, #8d99a6); margin-top: 1px; }
-			.mb-today-pill {
-				display: inline-block; margin-top: 5px; padding: 1px 8px; border-radius: 999px;
-				font-size: .65rem; font-weight: 650; text-transform: uppercase; letter-spacing: .04em;
-				background: var(--blue-500, #2490ef); color: #fff;
-			}
-
-			.mb-meal-label {
-				display: flex; align-items: center; font-weight: 600; font-size: .8rem;
-				text-transform: uppercase; letter-spacing: .05em;
-				color: var(--text-muted, #8d99a6); padding-right: 4px;
-			}
-
-			.mb-cell {
-				background: var(--fg-color, #fff); border: 1px solid var(--border-color, #e2e6e9);
-				border-radius: var(--border-radius-md, 8px); padding: 8px; min-height: 62px;
-				display: flex; flex-direction: column; gap: 6px;
-			}
-			.mb-cell.is-today { border-color: var(--blue-500, #2490ef); }
-			.mb-empty { color: var(--text-light, #c0c6cc); margin: auto; font-size: 1rem; }
 
 			.mb-dish {
-				display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-				padding: 6px 8px; border-radius: 6px;
-				background: var(--bg-color, #f4f5f6);
+				background: var(--fg-color, #fff);
+				border: 1px solid var(--border-color, #e2e6e9);
+				border-radius: var(--border-radius-md, 8px);
+				padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+				transition: border-color .12s ease;
 			}
-			.mb-dish-name { font-size: .82rem; color: var(--text-color, #1f272e); line-height: 1.25; }
-			.mb-dish-rate { font-size: .78rem; font-weight: 600; color: var(--text-muted, #8d99a6); white-space: nowrap; }
+			.mb-dish:hover { border-color: var(--blue-500, #2490ef); }
+			.mb-dish-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+			.mb-dish-name {
+				font-size: .98rem; font-weight: 600; line-height: 1.3;
+				color: var(--text-color, #1f272e);
+			}
+			.mb-dish-rate {
+				font-size: 1rem; font-weight: 650; white-space: nowrap;
+				color: var(--blue-600, #2490ef);
+			}
+			.mb-dish-foot {
+				display: flex; align-items: center; justify-content: space-between; gap: 8px;
+				font-size: .72rem; color: var(--text-muted, #8d99a6);
+			}
+			.mb-code { font-family: var(--font-stack-mono, monospace); }
+			.mb-qty {
+				background: var(--bg-color, #f4f5f6); padding: 2px 8px; border-radius: 999px;
+				white-space: nowrap;
+			}
 
 			.mb-blank {
 				text-align: center; padding: 3rem 1rem; color: var(--text-muted, #8d99a6);
-				background: var(--fg-color, #fff); border: 1px dashed var(--border-color, #e2e6e9);
+				background: var(--fg-color, #fff);
+				border: 1px dashed var(--border-color, #e2e6e9);
 				border-radius: var(--border-radius-md, 8px);
 			}
 
 			@media print {
 				.page-head, .navbar, .layout-side-section, .page-actions, .sidebar { display: none !important; }
-				.mb-grid { min-width: 0; }
-				.mb-cell, .mb-day-head { border-color: #bbb !important; }
-				.mb-dish { background: #f3f3f3 !important; }
+				.mb-dish { border-color: #bbb !important; break-inside: avoid; }
+				.mb-dish-rate { color: #000 !important; }
 			}
 		</style>`).appendTo(document.head);
 	}

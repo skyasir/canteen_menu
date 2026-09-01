@@ -3,8 +3,6 @@
 import frappe
 
 TEMPLATE_ROW_FIELDS = (
-	"weekday",
-	"meal_type",
 	"item_code",
 	"item_name",
 	"uom",

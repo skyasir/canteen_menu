@@ -22,8 +22,6 @@ add_to_apps_screen = [
 
 # Point of Sale shows only the items on today's menu for the canteen behind
 # the POS Profile. Falls back to stock behaviour when no Menu Cycle is active.
-after_install = "canteen_menu.install.after_install"
-
 scheduler_events = {
 	"daily": [
 		"canteen_menu.tasks.apply_scheduled_windows",

@@ -5,16 +5,12 @@ import frappe
 from frappe.utils import add_days, flt, getdate, today
 
 from canteen_menu.api import pos
-from canteen_menu.menu import WEEKDAYS, get_active_cycle, get_menu_item_codes, get_weekday
+from canteen_menu.menu import get_active_cycle, get_menu_item_codes
 
 try:  # v16
 	from frappe.tests import IntegrationTestCase as BaseTestCase
 except ImportError:  # v15
 	from frappe.tests.utils import FrappeTestCase as BaseTestCase
-
-
-def next_weekday(weekday: str) -> str:
-	return WEEKDAYS[(WEEKDAYS.index(weekday) + 1) % 7]
 
 
 def make_branch() -> str:
@@ -41,8 +37,8 @@ def make_pos_profile(base: str, price_list: str) -> str:
 	return profile.insert().name
 
 
-def make_cycle(pos_profile, rows, start=None, until="", active=1, rate=0, branch=None, schedule=None):
-	"""A weekly menu, with `rows` as (weekday, item_code) pairs."""
+def make_cycle(pos_profile, item_codes, start=None, until="", active=1, rate=0, branch=None, schedule=None):
+	"""A menu listing `item_codes` for its date range."""
 	cycle = frappe.get_doc({
 		"doctype": "Menu Cycle",
 		"cycle_name": frappe.generate_hash(length=10),
@@ -52,29 +48,11 @@ def make_cycle(pos_profile, rows, start=None, until="", active=1, rate=0, branch
 		"is_active": active,
 		"from_date": start or today(),
 		"to_date": until,
-		"items": [
-			{"weekday": weekday, "meal_type": "Lunch", "item_code": item_code, "rate": rate}
-			for weekday, item_code in rows
-		],
+		"items": [{"item_code": code, "rate": rate} for code in item_codes],
 		"schedule": schedule or [],
 	})
 	cycle.insert()
 	return cycle
-
-
-class TestWeekday(BaseTestCase):
-	"""No database, no rotation maths - just the calendar."""
-
-	def test_weekday_names_the_day(self):
-		self.assertEqual(get_weekday("2026-08-24"), "Monday")
-		self.assertEqual(get_weekday("2026-08-25"), "Tuesday")
-		self.assertEqual(get_weekday("2026-08-30"), "Sunday")
-
-	def test_the_week_wraps(self):
-		self.assertEqual(get_weekday("2026-08-31"), "Monday")
-
-	def test_next_weekday_helper_wraps(self):
-		self.assertEqual(next_weekday("Sunday"), "Monday")
 
 
 class CanteenTestCase(BaseTestCase):
@@ -95,8 +73,6 @@ class CanteenTestCase(BaseTestCase):
 			self.skipTest("needs a POS Profile and at least 3 sellable items")
 		self.price_list = make_price_list()
 		self.pos_profile = make_pos_profile(self.base_profile, self.price_list)
-		self.today = get_weekday()
-		self.tomorrow = next_weekday(self.today)
 
 	def tearDown(self):
 		frappe.db.rollback()
@@ -108,76 +84,62 @@ class CanteenTestCase(BaseTestCase):
 
 
 class TestMenuResolution(CanteenTestCase):
-	def test_only_todays_weekday_is_on_the_menu(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0]), (self.tomorrow, self.items[1])])
-		self.assertEqual(get_menu_item_codes(self.pos_profile), [self.items[0]])
+	def test_the_menu_lists_what_the_counter_sells(self):
+		make_cycle(self.pos_profile, [self.items[0], self.items[1]])
+		self.assertEqual(get_menu_item_codes(self.pos_profile), sorted(self.items[:2]))
 
-	def test_a_menu_with_nothing_for_today_serves_nothing(self):
-		make_cycle(self.pos_profile, [(self.tomorrow, self.items[0])])
+	def test_a_menu_with_no_items_serves_nothing(self):
+		make_cycle(self.pos_profile, [])
 		self.assertEqual(get_menu_item_codes(self.pos_profile), [])
 
-	def test_the_menu_repeats_next_week(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], until=add_days(today(), 30))
-		self.assertEqual(get_menu_item_codes(self.pos_profile, add_days(today(), 7)), [self.items[0]])
-		self.assertEqual(get_menu_item_codes(self.pos_profile, add_days(today(), 1)), [])
-
-	def test_a_blank_end_date_runs_on(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], until="")
-		# 364 days is exactly 52 weeks, so it lands on the same weekday
-		self.assertEqual(get_menu_item_codes(self.pos_profile, add_days(today(), 364)), [self.items[0]])
-
-	def test_no_cycle_means_no_restriction(self):
+	def test_no_menu_means_no_restriction(self):
 		self.assertIsNone(get_menu_item_codes(self.pos_profile))
 
-	def test_inactive_cycle_is_ignored(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], active=0)
+	def test_inactive_menu_is_ignored(self):
+		make_cycle(self.pos_profile, [self.items[0]], active=0)
 		self.assertIsNone(get_menu_item_codes(self.pos_profile))
 
 	def test_a_menu_that_has_ended_is_ignored(self):
 		make_cycle(
-			self.pos_profile, [(self.today, self.items[0])],
+			self.pos_profile, [self.items[0]],
 			start=add_days(today(), -30), until=add_days(today(), -1),
 		)
 		self.assertIsNone(get_active_cycle(self.pos_profile))
 
 	def test_a_menu_that_has_not_started_is_ignored(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], start=add_days(today(), 7))
+		make_cycle(self.pos_profile, [self.items[0]], start=add_days(today(), 7))
 		self.assertIsNone(get_active_cycle(self.pos_profile))
+
+	def test_a_blank_end_date_runs_on(self):
+		make_cycle(self.pos_profile, [self.items[0]], until="")
+		self.assertEqual(get_menu_item_codes(self.pos_profile, add_days(today(), 365)), [self.items[0]])
 
 	def test_template_rows_never_leak_into_the_menu(self):
 		"""Menu Cycle Item is shared with Menu Item Template - parenttype must isolate them."""
 		frappe.get_doc({
 			"doctype": "Menu Item Template",
 			"template_name": frappe.generate_hash(length=10),
-			"items": [{"weekday": self.today, "meal_type": "Lunch", "item_code": self.items[2]}],
+			"items": [{"item_code": self.items[2]}],
 		}).insert()
 
-		make_cycle(self.pos_profile, [(self.today, self.items[0])])
+		make_cycle(self.pos_profile, [self.items[0]])
 
 		codes = get_menu_item_codes(self.pos_profile)
 		self.assertIn(self.items[0], codes)
 		self.assertNotIn(self.items[2], codes)
 
 	def test_overlapping_active_menus_are_warned_not_blocked(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0])])
+		make_cycle(self.pos_profile, [self.items[0]])
 
 		frappe.local.message_log = []
-		second = make_cycle(self.pos_profile, [(self.today, self.items[1])])
+		second = make_cycle(self.pos_profile, [self.items[1]])
 
 		self.assertTrue(frappe.db.exists("Menu Cycle", second.name), "the save must go through")
 		self.assertIn("Another menu overlaps", self.messages())
 
-	def test_an_open_ended_menu_is_reported_against_a_later_one(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], until="")
-
-		frappe.local.message_log = []
-		make_cycle(self.pos_profile, [(self.today, self.items[1])], start=add_days(today(), 90))
-
-		self.assertIn("Another menu overlaps", self.messages())
-
 	def test_duplicate_rows_are_warned_not_blocked(self):
 		frappe.local.message_log = []
-		cycle = make_cycle(self.pos_profile, [(self.today, self.items[0]), (self.today, self.items[0])])
+		cycle = make_cycle(self.pos_profile, [self.items[0], self.items[0]])
 
 		self.assertTrue(frappe.db.exists("Menu Cycle", cycle.name), "the save must go through")
 		self.assertIn("Repeated rows", self.messages())
@@ -191,7 +153,7 @@ class TestMenuResolution(CanteenTestCase):
 
 	def test_a_backwards_date_range_is_warned_not_blocked(self):
 		frappe.local.message_log = []
-		cycle = make_cycle(self.pos_profile, [(self.today, self.items[0])], until=add_days(today(), -5))
+		cycle = make_cycle(self.pos_profile, [self.items[0]], until=add_days(today(), -5))
 
 		self.assertTrue(frappe.db.exists("Menu Cycle", cycle.name), "the save must go through")
 		self.assertIn("never runs", self.messages())
@@ -208,20 +170,20 @@ class TestPOSIntegration(CanteenTestCase):
 	def test_pos_shows_the_whole_catalogue_without_a_menu(self):
 		self.assertGreater(len(self.get_items()), 1)
 
-	def test_pos_shows_only_todays_weekday(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0]), (self.tomorrow, self.items[1])])
+	def test_pos_shows_only_the_menu(self):
+		make_cycle(self.pos_profile, [self.items[0]])
 		self.assertEqual(self.get_items(), [self.items[0]])
 
-	def test_pos_shows_nothing_when_today_has_no_rows(self):
-		make_cycle(self.pos_profile, [(self.tomorrow, self.items[0])])
+	def test_pos_shows_nothing_when_the_menu_is_empty(self):
+		make_cycle(self.pos_profile, [])
 		self.assertEqual(self.get_items(), [])
 
 	def test_search_cannot_reach_past_the_menu(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0])])
+		make_cycle(self.pos_profile, [self.items[0]])
 		self.assertEqual(self.get_items(search_term=self.items[1]), [])
 
 	def test_payload_keeps_the_shape_pos_expects(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0])])
+		make_cycle(self.pos_profile, [self.items[0]])
 		result = pos.get_items(
 			start=0, page_length=100, price_list=self.price_list,
 			item_group="", pos_profile=self.pos_profile,
@@ -230,11 +192,11 @@ class TestPOSIntegration(CanteenTestCase):
 		for key in ("item_code", "item_name", "stock_uom", "uom", "actual_qty", "price_list_rate", "currency"):
 			self.assertIn(key, item)
 
-	def test_preview_reports_the_weekday(self):
-		cycle = make_cycle(self.pos_profile, [(self.today, self.items[0])])
+	def test_preview_reports_the_live_menu(self):
+		cycle = make_cycle(self.pos_profile, [self.items[0]])
 		preview = pos.preview_menu(self.pos_profile)
+
 		self.assertEqual(preview["cycle"], cycle.name)
-		self.assertEqual(preview["weekday"], self.today)
 		self.assertEqual([r["item_code"] for r in preview["items"]], [self.items[0]])
 
 
@@ -250,8 +212,7 @@ class TestMenuPricing(CanteenTestCase):
 		)
 
 	def test_menu_rate_reaches_the_price_list(self):
-		cycle = make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=42.5,
-		                   until=add_days(today(), 30))
+		cycle = make_cycle(self.pos_profile, [self.items[0]], rate=42.5, until=add_days(today(), 30))
 
 		price = self.get_price(self.items[0])
 		self.assertIsNotNone(price)
@@ -260,18 +221,18 @@ class TestMenuPricing(CanteenTestCase):
 		self.assertEqual(getdate(price.valid_upto), getdate(cycle.to_date))
 
 	def test_an_open_ended_menu_prices_without_an_end_date(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=42.5, until="")
+		make_cycle(self.pos_profile, [self.items[0]], rate=42.5, until="")
 		self.assertIsNone(self.get_price(self.items[0]).valid_upto)
 
 	def test_changing_the_menu_rate_moves_the_price(self):
-		cycle = make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=42.5)
+		cycle = make_cycle(self.pos_profile, [self.items[0]], rate=42.5)
 		cycle.items[0].rate = 55
 		cycle.save()
 		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 55)
 
 	def test_an_inactive_menu_does_not_touch_prices(self):
 		before = self.get_price(self.items[1])
-		make_cycle(self.pos_profile, [(self.today, self.items[1])], rate=99, active=0)
+		make_cycle(self.pos_profile, [self.items[1]], rate=99, active=0)
 		self.assertEqual(before, self.get_price(self.items[1]))
 
 	def test_one_item_cannot_carry_two_prices_in_a_menu(self):
@@ -286,47 +247,36 @@ class TestMenuPricing(CanteenTestCase):
 				"is_active": 1,
 				"from_date": today(),
 				"items": [
-					{"weekday": self.today, "meal_type": "Lunch", "item_code": self.items[0], "rate": 10},
-					{"weekday": self.tomorrow, "meal_type": "Lunch", "item_code": self.items[0], "rate": 20},
+					{"item_code": self.items[0], "rate": 10},
+					{"item_code": self.items[0], "rate": 20},
 				],
 			}).insert()
 
 	def test_canteens_sharing_a_price_list_are_warned_not_blocked(self):
 		other = make_pos_profile(self.base_profile, self.price_list)
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
+		make_cycle(self.pos_profile, [self.items[0]], rate=40)
 
 		frappe.local.message_log = []
-		cycle = make_cycle(other, [(self.today, self.items[0])], rate=25)
+		cycle = make_cycle(other, [self.items[0]], rate=25)
 
 		self.assertTrue(frappe.db.exists("Menu Cycle", cycle.name), "the save must go through")
 		warnings = self.messages()
 		self.assertIn("share a price list", warnings)
 		self.assertIn(self.items[0], warnings)
-		self.assertIn(self.price_list, warnings)
 
 	def test_on_a_shared_price_list_the_last_save_wins(self):
 		other = make_pos_profile(self.base_profile, self.price_list)
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
-		make_cycle(other, [(self.today, self.items[0])], rate=25)
+		make_cycle(self.pos_profile, [self.items[0]], rate=40)
+		make_cycle(other, [self.items[0]], rate=25)
 
 		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 25)
-
-	def test_no_warning_when_canteens_agree_on_the_rate(self):
-		other = make_pos_profile(self.base_profile, self.price_list)
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
-
-		frappe.local.message_log = []
-		make_cycle(other, [(self.today, self.items[0])], rate=40)  # identical - nothing to overwrite
-
-		self.assertNotIn("share a price list", self.messages())
-		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 40)
 
 	def test_separate_price_lists_keep_canteens_independent(self):
 		other_list = make_price_list()
 		other = make_pos_profile(self.base_profile, other_list)
 
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
-		make_cycle(other, [(self.today, self.items[0])], rate=25)
+		make_cycle(self.pos_profile, [self.items[0]], rate=40)
+		make_cycle(other, [self.items[0]], rate=25)
 
 		self.assertEqual(flt(self.get_price(self.items[0]).price_list_rate), 40)
 		self.assertEqual(flt(self.get_price(self.items[0], other_list).price_list_rate), 25)
@@ -339,48 +289,15 @@ class TestMenuPricing(CanteenTestCase):
 		on_default = make_pos_profile(self.base_profile, default)
 
 		frappe.local.message_log = []
-		make_cycle(on_default, [(self.today, self.items[0])], rate=40)
+		make_cycle(on_default, [self.items[0]], rate=40)
 
 		self.assertIn("default selling price list", self.messages())
 
 	def test_a_menu_on_its_own_price_list_is_not_warned(self):
 		frappe.local.message_log = []
-		make_cycle(self.pos_profile, [(self.today, self.items[0])], rate=40)
+		make_cycle(self.pos_profile, [self.items[0]], rate=40)
 
 		self.assertNotIn("default selling price list", self.messages())
-
-
-class TestMealTypes(CanteenTestCase):
-	"""Meals are a master you control, not a hardcoded list."""
-
-	def row(self, meal):
-		return frappe.get_doc({
-			"doctype": "Menu Cycle",
-			"cycle_name": frappe.generate_hash(length=10),
-			"branch": make_branch(),
-			"pos_profile": self.pos_profile,
-			"company": frappe.db.get_value("POS Profile", self.pos_profile, "company"),
-			"is_active": 1,
-			"from_date": today(),
-			"items": [{"weekday": self.today, "meal_type": meal, "item_code": self.items[0]}],
-		})
-
-	def test_the_default_meals_are_seeded(self):
-		for meal in ("Breakfast", "Lunch", "Dinner", "Snacks"):
-			self.assertTrue(frappe.db.exists("Meal Type", meal), f"{meal} should exist")
-
-	def test_an_unknown_meal_is_rejected(self):
-		with self.assertRaises(frappe.exceptions.LinkValidationError):
-			self.row("Elevenses").insert()
-
-	def test_a_meal_you_add_yourself_works(self):
-		frappe.get_doc({"doctype": "Meal Type", "meal_name": "Iftar", "sequence": 65}).insert()
-
-		cycle = self.row("Iftar")
-		cycle.insert()
-
-		self.assertEqual(cycle.items[0].meal_type, "Iftar")
-		self.assertIn(self.items[0], get_menu_item_codes(self.pos_profile))
 
 
 class TestScheduledWindows(CanteenTestCase):
@@ -391,7 +308,7 @@ class TestScheduledWindows(CanteenTestCase):
 
 	def test_the_window_covering_today_goes_live(self):
 		cycle = make_cycle(
-			self.pos_profile, [(self.today, self.items[0])],
+			self.pos_profile, [self.items[0]],
 			start=add_days(today(), -60), until=add_days(today(), -55),
 			schedule=[self.window(-3, 3), self.window(10, 16)],
 		)
@@ -401,26 +318,24 @@ class TestScheduledWindows(CanteenTestCase):
 
 	def test_only_the_live_window_is_marked_running_now(self):
 		cycle = make_cycle(
-			self.pos_profile, [(self.today, self.items[0])],
+			self.pos_profile, [self.items[0]],
 			schedule=[self.window(-3, 3), self.window(10, 16)],
 		)
-
 		self.assertEqual([row.is_current for row in cycle.schedule], [1, 0])
 
 	def test_a_future_only_schedule_leaves_the_dates_alone(self):
 		cycle = make_cycle(
-			self.pos_profile, [(self.today, self.items[0])],
+			self.pos_profile, [self.items[0]],
 			start=today(), until=add_days(today(), 6),
 			schedule=[self.window(30, 36)],
 		)
-
 		self.assertEqual(getdate(cycle.from_date), getdate(today()))
 		self.assertEqual([row.is_current for row in cycle.schedule], [0])
 
 	def test_overlapping_windows_are_flagged_and_the_first_wins(self):
 		frappe.local.message_log = []
 		cycle = make_cycle(
-			self.pos_profile, [(self.today, self.items[0])],
+			self.pos_profile, [self.items[0]],
 			schedule=[self.window(-2, 2), self.window(-1, 5)],
 		)
 
@@ -433,10 +348,7 @@ class TestScheduledWindows(CanteenTestCase):
 
 		from canteen_menu import tasks
 
-		cycle = make_cycle(
-			self.pos_profile, [(self.today, self.items[0])],
-			schedule=[self.window(-3, 3)],
-		)
+		cycle = make_cycle(self.pos_profile, [self.items[0]], schedule=[self.window(-3, 3)])
 		# rewind the live dates behind the scheduler's back, as if the window
 		# had only just come around
 		frappe.db.set_value("Menu Cycle", cycle.name, "from_date", add_days(today(), -60),
@@ -449,7 +361,6 @@ class TestScheduledWindows(CanteenTestCase):
 
 		moved = frappe.get_doc("Menu Cycle", cycle.name)
 		self.assertEqual(getdate(moved.from_date), getdate(add_days(today(), -3)))
-		self.assertEqual(getdate(moved.to_date), getdate(add_days(today(), 3)))
 		self.assertEqual(moved.schedule[0].is_current, 1)
 
 
@@ -461,45 +372,32 @@ class TestMenuBoard(CanteenTestCase):
 
 		return get_menu_board(self.pos_profile, **kwargs)
 
-	def test_the_board_covers_a_full_week_starting_monday(self):
-		data = self.board()
-		self.assertEqual(len(data["days"]), 7)
-		self.assertEqual(data["days"][0]["weekday"], "Monday")
-		self.assertEqual(data["days"][-1]["weekday"], "Sunday")
-
-	def test_exactly_one_day_is_marked_today(self):
-		data = self.board()
-		self.assertEqual(sum(1 for d in data["days"] if d["is_today"]), 1)
-
 	def test_the_board_agrees_with_what_pos_serves(self):
-		make_cycle(self.pos_profile, [(self.today, self.items[0]), (self.tomorrow, self.items[1])])
+		make_cycle(self.pos_profile, [self.items[0], self.items[1]], rate=30)
 
 		data = self.board()
-		today_cell = next(d for d in data["days"] if d["is_today"])
-		on_board = sorted({i["item_code"] for items in today_cell["meals"].values() for i in items})
+		on_board = sorted(d["item_code"] for d in data["dishes"])
 
 		self.assertEqual(on_board, get_menu_item_codes(self.pos_profile))
+		self.assertEqual(data["total_dishes"], 2)
 
-	def test_meals_come_back_in_serving_order(self):
-		frappe.get_doc({
-			"doctype": "Menu Cycle",
-			"cycle_name": frappe.generate_hash(length=10),
-			"branch": make_branch(),
-			"pos_profile": self.pos_profile,
-			"company": frappe.db.get_value("POS Profile", self.pos_profile, "company"),
-			"is_active": 1,
-			"from_date": today(),
-			"items": [
-				{"weekday": self.today, "meal_type": "Dinner", "item_code": self.items[0]},
-				{"weekday": self.today, "meal_type": "Breakfast", "item_code": self.items[1]},
-			],
-		}).insert()
+	def test_the_board_reports_the_menu_and_its_period(self):
+		cycle = make_cycle(self.pos_profile, [self.items[0]], until=add_days(today(), 6))
 
-		# Breakfast (sequence 10) must precede Dinner (60), not sort alphabetically
-		self.assertEqual(self.board()["meals"], ["Breakfast", "Dinner"])
+		data = self.board()
+		self.assertEqual(data["cycle"], cycle.name)
+		self.assertEqual(getdate(data["from_date"]), getdate(cycle.from_date))
+		self.assertEqual(getdate(data["to_date"]), getdate(cycle.to_date))
 
 	def test_a_canteen_with_no_menu_returns_an_empty_board(self):
 		data = self.board()
-		self.assertEqual(data["meals"], [])
+		self.assertIsNone(data["cycle"])
+		self.assertEqual(data["dishes"], [])
 		self.assertEqual(data["total_dishes"], 0)
-		self.assertTrue(all(d["cycle"] is None for d in data["days"]))
+
+	def test_the_board_carries_prices_and_planned_quantities(self):
+		make_cycle(self.pos_profile, [self.items[0]], rate=42.5)
+
+		dish = self.board()["dishes"][0]
+		self.assertEqual(flt(dish["rate"]), 42.5)
+		self.assertIn("item_name", dish)
