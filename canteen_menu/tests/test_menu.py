@@ -41,7 +41,7 @@ def make_pos_profile(base: str, price_list: str) -> str:
 	return profile.insert().name
 
 
-def make_cycle(pos_profile, rows, start=None, until="", active=1, rate=0, branch=None):
+def make_cycle(pos_profile, rows, start=None, until="", active=1, rate=0, branch=None, schedule=None):
 	"""A weekly menu, with `rows` as (weekday, item_code) pairs."""
 	cycle = frappe.get_doc({
 		"doctype": "Menu Cycle",
@@ -56,6 +56,7 @@ def make_cycle(pos_profile, rows, start=None, until="", active=1, rate=0, branch
 			{"weekday": weekday, "meal_type": "Lunch", "item_code": item_code, "rate": rate}
 			for weekday, item_code in rows
 		],
+		"schedule": schedule or [],
 	})
 	cycle.insert()
 	return cycle
@@ -380,3 +381,73 @@ class TestMealTypes(CanteenTestCase):
 
 		self.assertEqual(cycle.items[0].meal_type, "Iftar")
 		self.assertIn(self.items[0], get_menu_item_codes(self.pos_profile))
+
+
+class TestScheduledWindows(CanteenTestCase):
+	"""Planned weeks: when one arrives, the menu moves onto it."""
+
+	def window(self, start_offset, end_offset):
+		return {"from_date": add_days(today(), start_offset), "to_date": add_days(today(), end_offset)}
+
+	def test_the_window_covering_today_goes_live(self):
+		cycle = make_cycle(
+			self.pos_profile, [(self.today, self.items[0])],
+			start=add_days(today(), -60), until=add_days(today(), -55),
+			schedule=[self.window(-3, 3), self.window(10, 16)],
+		)
+
+		self.assertEqual(getdate(cycle.from_date), getdate(add_days(today(), -3)))
+		self.assertEqual(getdate(cycle.to_date), getdate(add_days(today(), 3)))
+
+	def test_only_the_live_window_is_marked_running_now(self):
+		cycle = make_cycle(
+			self.pos_profile, [(self.today, self.items[0])],
+			schedule=[self.window(-3, 3), self.window(10, 16)],
+		)
+
+		self.assertEqual([row.is_current for row in cycle.schedule], [1, 0])
+
+	def test_a_future_only_schedule_leaves_the_dates_alone(self):
+		cycle = make_cycle(
+			self.pos_profile, [(self.today, self.items[0])],
+			start=today(), until=add_days(today(), 6),
+			schedule=[self.window(30, 36)],
+		)
+
+		self.assertEqual(getdate(cycle.from_date), getdate(today()))
+		self.assertEqual([row.is_current for row in cycle.schedule], [0])
+
+	def test_overlapping_windows_are_flagged_and_the_first_wins(self):
+		frappe.local.message_log = []
+		cycle = make_cycle(
+			self.pos_profile, [(self.today, self.items[0])],
+			schedule=[self.window(-2, 2), self.window(-1, 5)],
+		)
+
+		self.assertIn("Check the planned weeks", self.messages())
+		self.assertEqual([row.is_current for row in cycle.schedule], [1, 0])
+		self.assertEqual(getdate(cycle.to_date), getdate(add_days(today(), 2)))
+
+	def test_the_daily_job_moves_the_menu_onto_the_new_window(self):
+		from unittest.mock import patch
+
+		from canteen_menu import tasks
+
+		cycle = make_cycle(
+			self.pos_profile, [(self.today, self.items[0])],
+			schedule=[self.window(-3, 3)],
+		)
+		# rewind the live dates behind the scheduler's back, as if the window
+		# had only just come around
+		frappe.db.set_value("Menu Cycle", cycle.name, "from_date", add_days(today(), -60),
+		                    update_modified=False)
+		frappe.db.set_value("Menu Cycle", cycle.name, "to_date", add_days(today(), -55),
+		                    update_modified=False)
+
+		with patch.object(frappe.db, "commit"):
+			tasks.apply_scheduled_windows()
+
+		moved = frappe.get_doc("Menu Cycle", cycle.name)
+		self.assertEqual(getdate(moved.from_date), getdate(add_days(today(), -3)))
+		self.assertEqual(getdate(moved.to_date), getdate(add_days(today(), 3)))
+		self.assertEqual(moved.schedule[0].is_current, 1)

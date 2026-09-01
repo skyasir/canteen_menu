@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, getdate
+from frappe.utils import cint, flt, getdate
 
 
 def same_date(a, b) -> bool:
@@ -14,6 +14,8 @@ def same_date(a, b) -> bool:
 
 class MenuCycle(Document):
 	def validate(self):
+		self.apply_scheduled_window()
+		self.warn_about_schedule()
 		self.warn_if_dates_are_backwards()
 		self.warn_if_no_items()
 		# Fills in UOM, which the rate comparisons below key on - must run first.
@@ -26,6 +28,75 @@ class MenuCycle(Document):
 
 	def on_update(self):
 		self.sync_menu_rates()
+
+	def apply_scheduled_window(self) -> bool:
+		"""Move the live dates onto whichever planned week covers today.
+
+		Returns True if anything changed, so the daily job knows whether the
+		document is worth saving.
+		"""
+		if not self.schedule:
+			return False
+
+		on_date = getdate()
+		before = [cint(row.is_current) for row in self.schedule]
+		current = None
+
+		for row in self.schedule:
+			covers = (
+				row.from_date
+				and row.to_date
+				and getdate(row.from_date) <= on_date <= getdate(row.to_date)
+			)
+			# First match wins if windows overlap; warn_about_schedule flags that.
+			row.is_current = 1 if (covers and current is None) else 0
+			if covers and current is None:
+				current = row
+
+		changed = [cint(row.is_current) for row in self.schedule] != before
+
+		if current and not (
+			same_date(self.from_date, current.from_date) and same_date(self.to_date, current.to_date)
+		):
+			self.from_date = current.from_date
+			self.to_date = current.to_date
+			changed = True
+
+		return changed
+
+	def warn_about_schedule(self):
+		"""Planned weeks that read backwards, or tread on each other."""
+		problems = []
+		windows = []
+
+		for row in self.schedule:
+			if not (row.from_date and row.to_date):
+				continue
+
+			start, end = getdate(row.from_date), getdate(row.to_date)
+			if end < start:
+				problems.append(
+					_("Row {0}: Until ({1}) is before Starts On ({2}), so this week never runs").format(
+						row.idx, row.to_date, row.from_date
+					)
+				)
+				continue
+
+			for other_idx, other_start, other_end in windows:
+				if start <= other_end and other_start <= end:
+					problems.append(
+						_("Rows {0} and {1} overlap; the earlier row wins on a day they share").format(
+							other_idx, row.idx
+						)
+					)
+			windows.append((row.idx, start, end))
+
+		if problems:
+			frappe.msgprint(
+				"<ul><li>" + "</li><li>".join(problems) + "</li></ul>",
+				title=_("Check the planned weeks"),
+				indicator="orange",
+			)
 
 	def warn_if_dates_are_backwards(self):
 		if self.to_date and getdate(self.to_date) < getdate(self.from_date):

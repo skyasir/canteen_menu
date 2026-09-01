@@ -24,6 +24,12 @@ add_to_apps_screen = [
 # the POS Profile. Falls back to stock behaviour when no Menu Cycle is active.
 after_install = "canteen_menu.install.after_install"
 
+scheduler_events = {
+	"daily": [
+		"canteen_menu.tasks.apply_scheduled_windows",
+	],
+}
+
 override_whitelisted_methods = {
 	"erpnext.selling.page.point_of_sale.point_of_sale.get_items": "canteen_menu.api.pos.get_items",
 }

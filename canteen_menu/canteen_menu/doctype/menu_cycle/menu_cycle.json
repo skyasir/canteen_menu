@@ -19,6 +19,8 @@
   "from_date",
   "col_break_mc_2",
   "to_date",
+  "sec_schedule",
+  "schedule",
   "sec_items",
   "menu_item_template",
   "items",
@@ -128,12 +130,25 @@
    "fieldname": "notes",
    "fieldtype": "Text Editor",
    "label": "Notes"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sec_schedule",
+   "fieldtype": "Section Break",
+   "label": "Planned Weeks"
+  },
+  {
+   "description": "Plan the weeks this menu will run. When a window arrives, Starts On and Until above switch to it automatically and the row is marked Running Now.",
+   "fieldname": "schedule",
+   "fieldtype": "Table",
+   "label": "Future Planning",
+   "options": "Menu Cycle Schedule"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-25 02:55:04.552863",
+ "modified": "2026-09-01 23:08:41.604065",
  "modified_by": "Administrator",
  "module": "Canteen Menu",
  "name": "Menu Cycle",
