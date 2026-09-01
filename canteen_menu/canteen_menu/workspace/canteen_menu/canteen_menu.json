@@ -6,7 +6,7 @@
    "label": "Dishes by Weekday"
   }
  ],
- "content": "[{\"id\": \"7f4866981e\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Today at the counter</b></span>\", \"col\": 12}}, {\"id\": \"c8566f7bda\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Active Menus\", \"col\": 4}}, {\"id\": \"76d8583203\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Menus Ending This Week\", \"col\": 4}}, {\"id\": \"c3dd0f7618\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Dishes on the Menu\", \"col\": 4}}, {\"id\": \"f57bf1ed67\", \"type\": \"chart\", \"data\": {\"chart_name\": \"Dishes by Weekday\", \"col\": 8}}, {\"id\": \"1f315c2a17\", \"type\": \"quick_list\", \"data\": {\"quick_list_name\": \"Menus Running Now\", \"col\": 4}}, {\"id\": \"b747f62ad6\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"873d88ea00\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Jump to</b></span>\", \"col\": 12}}, {\"id\": \"dc1b01154e\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Menu Cycle\", \"col\": 4}}, {\"id\": \"00eac7bf2a\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Menu Item Template\", \"col\": 4}}, {\"id\": \"2464b2b5e3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Point of Sale\", \"col\": 4}}, {\"id\": \"f0ec9c3bcb\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"POS Profile\", \"col\": 4}}, {\"id\": \"550c5bf382\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Item Price\", \"col\": 4}}, {\"id\": \"30699b0c6d\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Price List\", \"col\": 4}}, {\"id\": \"0ddc29e364\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"e9ac52db6f\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Masters &amp; Settings</b></span>\", \"col\": 12}}, {\"id\": \"20e0d5dc07\", \"type\": \"card\", \"data\": {\"card_name\": \"Menu Planning\", \"col\": 4}}, {\"id\": \"05002fb005\", \"type\": \"card\", \"data\": {\"card_name\": \"Point of Sale\", \"col\": 4}}, {\"id\": \"27e1dcef45\", \"type\": \"card\", \"data\": {\"card_name\": \"Pricing\", \"col\": 4}}]",
+ "content": "[{\"id\": \"7f4866981e\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Today at the counter</b></span>\", \"col\": 12}}, {\"id\": \"c8566f7bda\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Active Menus\", \"col\": 4}}, {\"id\": \"76d8583203\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Menus Ending This Week\", \"col\": 4}}, {\"id\": \"c3dd0f7618\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Dishes on the Menu\", \"col\": 4}}, {\"id\": \"f57bf1ed67\", \"type\": \"chart\", \"data\": {\"chart_name\": \"Dishes by Weekday\", \"col\": 8}}, {\"id\": \"1f315c2a17\", \"type\": \"quick_list\", \"data\": {\"quick_list_name\": \"Menus Running Now\", \"col\": 4}}, {\"id\": \"b747f62ad6\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"873d88ea00\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Jump to</b></span>\", \"col\": 12}}, {\"id\": \"294344529c\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Menu Board\", \"col\": 4}}, {\"id\": \"dc1b01154e\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Menu Cycle\", \"col\": 4}}, {\"id\": \"00eac7bf2a\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Menu Item Template\", \"col\": 4}}, {\"id\": \"2464b2b5e3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Point of Sale\", \"col\": 4}}, {\"id\": \"f0ec9c3bcb\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"POS Profile\", \"col\": 4}}, {\"id\": \"550c5bf382\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Item Price\", \"col\": 4}}, {\"id\": \"30699b0c6d\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Price List\", \"col\": 4}}, {\"id\": \"0ddc29e364\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"e9ac52db6f\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Masters &amp; Settings</b></span>\", \"col\": 12}}, {\"id\": \"20e0d5dc07\", \"type\": \"card\", \"data\": {\"card_name\": \"Menu Planning\", \"col\": 4}}, {\"id\": \"05002fb005\", \"type\": \"card\", \"data\": {\"card_name\": \"Point of Sale\", \"col\": 4}}, {\"id\": \"27e1dcef45\", \"type\": \"card\", \"data\": {\"card_name\": \"Pricing\", \"col\": 4}}]",
  "creation": "2026-08-25 03:05:27.066031",
  "custom_blocks": [],
  "docstatus": 0,
@@ -23,10 +23,20 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Menu Planning",
-   "link_count": 3,
+   "link_count": 4,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Menu Board",
+   "link_count": 0,
+   "link_to": "menu-board",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
   },
   {
    "hidden": 0,
@@ -147,7 +157,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-08-25 13:03:49.152053",
+ "modified": "2026-09-01 23:21:36.520312",
  "modified_by": "Administrator",
  "module": "Canteen Menu",
  "name": "Canteen Menu",
@@ -177,6 +187,13 @@
  "roles": [],
  "sequence_id": 25.0,
  "shortcuts": [
+  {
+   "color": "Cyan",
+   "doc_view": "",
+   "label": "Menu Board",
+   "link_to": "menu-board",
+   "type": "Page"
+  },
   {
    "color": "Blue",
    "doc_view": "",

@@ -451,3 +451,55 @@ class TestScheduledWindows(CanteenTestCase):
 		self.assertEqual(getdate(moved.from_date), getdate(add_days(today(), -3)))
 		self.assertEqual(getdate(moved.to_date), getdate(add_days(today(), 3)))
 		self.assertEqual(moved.schedule[0].is_current, 1)
+
+
+class TestMenuBoard(CanteenTestCase):
+	"""The board must show exactly what the counter will show."""
+
+	def board(self, **kwargs):
+		from canteen_menu.api.board import get_menu_board
+
+		return get_menu_board(self.pos_profile, **kwargs)
+
+	def test_the_board_covers_a_full_week_starting_monday(self):
+		data = self.board()
+		self.assertEqual(len(data["days"]), 7)
+		self.assertEqual(data["days"][0]["weekday"], "Monday")
+		self.assertEqual(data["days"][-1]["weekday"], "Sunday")
+
+	def test_exactly_one_day_is_marked_today(self):
+		data = self.board()
+		self.assertEqual(sum(1 for d in data["days"] if d["is_today"]), 1)
+
+	def test_the_board_agrees_with_what_pos_serves(self):
+		make_cycle(self.pos_profile, [(self.today, self.items[0]), (self.tomorrow, self.items[1])])
+
+		data = self.board()
+		today_cell = next(d for d in data["days"] if d["is_today"])
+		on_board = sorted({i["item_code"] for items in today_cell["meals"].values() for i in items})
+
+		self.assertEqual(on_board, get_menu_item_codes(self.pos_profile))
+
+	def test_meals_come_back_in_serving_order(self):
+		frappe.get_doc({
+			"doctype": "Menu Cycle",
+			"cycle_name": frappe.generate_hash(length=10),
+			"branch": make_branch(),
+			"pos_profile": self.pos_profile,
+			"company": frappe.db.get_value("POS Profile", self.pos_profile, "company"),
+			"is_active": 1,
+			"from_date": today(),
+			"items": [
+				{"weekday": self.today, "meal_type": "Dinner", "item_code": self.items[0]},
+				{"weekday": self.today, "meal_type": "Breakfast", "item_code": self.items[1]},
+			],
+		}).insert()
+
+		# Breakfast (sequence 10) must precede Dinner (60), not sort alphabetically
+		self.assertEqual(self.board()["meals"], ["Breakfast", "Dinner"])
+
+	def test_a_canteen_with_no_menu_returns_an_empty_board(self):
+		data = self.board()
+		self.assertEqual(data["meals"], [])
+		self.assertEqual(data["total_dishes"], 0)
+		self.assertTrue(all(d["cycle"] is None for d in data["days"]))
